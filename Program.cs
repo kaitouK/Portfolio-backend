@@ -25,22 +25,6 @@ builder.Host.UseSerilog();
 string projectRoot = builder.Environment.ContentRootPath;
 string keysFolder = Path.Combine(projectRoot, "Keys");
 
-/*
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    // 信任 X-Forwarded-For 和 X-Forwarded-Proto 標頭
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    
-    // 如果你的 Nginx/代理伺服器跟你的 API 在同一台機器或網域，通常需要清空已知網路，
-    // 讓系統無條件信任前方的 Proxy 傳來的 IP (這在部署個人專案時很常見)
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
-});
-*/
-// 如果資料夾不存在，系統會自動建立
-/*builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(keysFolder))
-    .SetApplicationName("MyPortfolioApp"); // 建議固定應用程式名稱*/
 
 builder.Services.AddRateLimiter(options =>
 {

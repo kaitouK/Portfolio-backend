@@ -432,3 +432,4 @@ appsettings.json
 appsettings.Production.json
 .secrets.json
 [Kk]eys
+*.db

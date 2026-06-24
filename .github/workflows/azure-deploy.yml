@@ -1,0 +1,29 @@
+name: Build and Deploy ASP.NET Core API with SQLite
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout GitHub Action
+        uses: actions/checkout@v4
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.201" # 依你的版本調整
+
+      - name: dotnet publish
+        run: dotnet publish -c Release -o ${{ visions.runner.temp }}/myapp
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: "KaitouK-portfolio"
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ visions.runner.temp }}/myapp
