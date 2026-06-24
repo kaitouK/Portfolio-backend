@@ -13,17 +13,23 @@ jobs:
       - name: Checkout GitHub Action
         uses: actions/checkout@v4
 
-      - name: Setup .NET Core
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.201" # 依你的版本調整
+          dotnet-version: "8.0.x"
 
-      - name: dotnet publish
-        run: dotnet publish -c Release -o ${{ visions.runner.temp }}/myapp
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      - name: Publish
+        run: dotnet publish -c Release -o publish
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: "KaitouK-portfolio"
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: ${{ visions.runner.temp }}/myapp
+          package: publish
