@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Serilog;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 var builder = WebApplication.CreateBuilder(args);
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -136,8 +137,12 @@ builder.Services.AddCors(options =>
 
 
 var app = builder.Build();
-//如果實際部屬在代理伺服器上要使用下列函式
-//app.UseForwardedHeaders();
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto
+});
 app.Use(async (context, next) =>
 {
     // 允許 Google 登入的彈出視窗正常與 React 母網頁通訊
