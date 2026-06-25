@@ -129,7 +129,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReactApp", policy =>
     {
         policy.WithOrigins("https://localhost:5173"
-        , "https://kaitouk.github.io/portfolio-frontend/"
+        , "https://kaitouk.github.io"
         ) // React 開發伺服器的預設 URL
               .AllowAnyHeader()
               .AllowAnyMethod()
