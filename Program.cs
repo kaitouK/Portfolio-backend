@@ -128,7 +128,9 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins("https://localhost:5173") // React 開發伺服器的預設 URL
+        policy.WithOrigins("https://localhost:5173"
+        , "https://kaitouk.github.io/portfolio-frontend/"
+        ) // React 開發伺服器的預設 URL
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -137,12 +139,15 @@ builder.Services.AddCors(options =>
 
 
 var app = builder.Build();
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
-    ForwardedHeaders =
-        ForwardedHeaders.XForwardedFor |
-        ForwardedHeaders.XForwardedProto
-});
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear(); // 加上這行，允許來自 Azure 的轉發
+forwardedHeadersOptions.KnownProxies.Clear();  // 加上這行，允許來自 Azure 的轉發
+forwardedHeadersOptions.ForwardLimit = 1;
+
+app.UseForwardedHeaders(forwardedHeadersOptions);
 app.Use(async (context, next) =>
 {
     // 允許 Google 登入的彈出視窗正常與 React 母網頁通訊
@@ -155,7 +160,8 @@ app.Use(async (context, next) =>
 });
 app.UseDefaultFiles(); // 允許服務預設的靜態檔案（如 wwwroot 資料夾中的檔案）
 app.UseStaticFiles(); // 允許服務靜態檔案（如上傳的圖片）
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 
 app.UseRouting();//先路由
 
@@ -168,12 +174,7 @@ app.UseAuthorization(); // 最後授權
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    /*using (var scope = app.Services.CreateScope())
-    {
-        var dbContext = scope.ServiceProvider.GetRequiredService<MyDbContext>();
-        //清除journal相關資料表
-        dbContext.ClearJournalTables();
-    }*/
+
     app.MapOpenApi();
 }
 
