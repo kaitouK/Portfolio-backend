@@ -20,7 +20,7 @@ namespace MyPortfolio.Service
 
         public string GenerateToken(string username)
         {
-            var jwtKey = _configuration["Admin:JwtKey"];
+            var jwtKey = _configuration.GetSection("Admin")["JwtKey"];
             if (string.IsNullOrEmpty(jwtKey))
             {
                 _logger.LogError("JWT Key 未正確載入");

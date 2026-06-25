@@ -46,7 +46,7 @@ builder.Services.AddAuthentication(Options =>
 .AddJwtBearer(options =>
 {
     //JwtKey需與AuthService相同
-    var jwtKey = builder.Configuration["Admin:JwtKey"];
+    var jwtKey = builder.Configuration.GetSection("Admin")["JwtKey"];
     if (string.IsNullOrEmpty(jwtKey) || jwtKey.Length < 32)
     {
         throw new InvalidOperationException("【嚴重安全錯誤】JWT Secret Key 遺失或長度不足 32 bytes！請檢查環境變數或 User-Secrets。");

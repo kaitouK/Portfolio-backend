@@ -36,7 +36,7 @@ namespace MyPortfolio.Controller
             try
             {
                 // 從設定檔取得 Google Client ID
-                var googleClientId = _configuration["Authentication:Google:ClientId"];
+                var googleClientId = _configuration.GetSection("Authentication")["Google:ClientId"];
                 if (string.IsNullOrEmpty(googleClientId))
                 {
                     _logger.LogError("Google Client ID 未在設定檔中配置！");
@@ -57,7 +57,7 @@ namespace MyPortfolio.Controller
                 }
 
                 // 白名單檢查
-                var adminEmail = _configuration["Admin:Email"];
+                var adminEmail = _configuration.GetSection("Admin")["Email"];
                 if (payload.Email == null || !payload.Email.Equals(adminEmail, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogWarning("非法登入嘗試：{Email} 嘗試使用 Google 登入，但不在白名單中。", payload.Email);
