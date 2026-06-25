@@ -106,9 +106,16 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim(ClaimTypes.Email, builder.Configuration["Admin:Email"]!);
     });
 });
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+// 如果是在 Azure 環境（Linux），確保資料夾存在
+if (connectionString.Contains("/home/data/"))
+{
+    Directory.CreateDirectory("/home/data");
+}
+
 builder.Services.AddDbContext<MyDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
-    ));
+    options.UseSqlite(connectionString));
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers()
