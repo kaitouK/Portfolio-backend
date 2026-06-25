@@ -37,6 +37,16 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit = 0;                     //不排隊，超過直接拒絕
     });
 });
+Console.WriteLine(
+    $"Environment = {builder.Environment.EnvironmentName}"
+);
+foreach (var item in builder.Configuration.AsEnumerable())
+{
+    if (item.Key.Contains("Admin"))
+    {
+        Console.WriteLine($"{item.Key}={item.Value}");
+    }
+}
 
 builder.Services.AddAuthentication(Options =>
 {
