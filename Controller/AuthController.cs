@@ -117,7 +117,7 @@ namespace MyPortfolio.Controller
             {
                 HttpOnly = true,
                 Secure = true,
-                SameSite = SameSiteMode.Lax, // 若為跨域開發環境，需保持 None；若同網域建議改為 Lax
+                SameSite = SameSiteMode.None, // 若為跨域開發環境，需保持 None；若同網域建議改為 Lax
                 Path = "/"
             };
             if (expires.HasValue)
