@@ -8,6 +8,8 @@ using MyPortfolio.Repository;
 using System.Net;
 using Ganss.Xss;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 
 namespace MyPortfolio.Service
 {
@@ -15,14 +17,20 @@ namespace MyPortfolio.Service
     {
         private readonly IJournalRepository _journalRepository;
         private readonly ILogger<JournalService> _logger;
-        private readonly string _storagePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads/journal");
         private readonly HtmlSanitizer _sanitizer;
-        public JournalService(IJournalRepository repository, ILogger<JournalService> logger)
+        private readonly BlobContainerClient _containerClient;
+        public JournalService(IJournalRepository repository, ILogger<JournalService> logger, IConfiguration configuration)
         {
             _logger = logger;
             _journalRepository = repository;
             _sanitizer = new HtmlSanitizer();
-            if (!Directory.Exists(_storagePath)) Directory.CreateDirectory(_storagePath);
+            string connectionString = configuration.GetConnectionString("BlobStorage")
+           ?? throw new InvalidOperationException("找不到 Blob Storage 連線字串。");
+
+            //初始化 Blob 容器用戶端
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            _containerClient = blobServiceClient.GetBlobContainerClient("images");
+            _containerClient.CreateIfNotExists();
         }
 
         public async Task<ServiceResult<JournalResponseDto>> GetActiveDraftAsync()
@@ -91,8 +99,8 @@ namespace MyPortfolio.Service
             if (journalExists == null) return ServiceResult<JournalImageUploadResponse>.Fail("指定的日誌主體不存在，無法上傳圖片", HttpStatusCode.NotFound);
 
             var fileGuid = Guid.NewGuid();
-            var fileName = $"{fileGuid}.webp";
-            var filePath = Path.Combine(_storagePath, fileName);
+            var fileName = $"journal/{fileGuid}.webp";
+            var blobClient = _containerClient.GetBlobClient(fileName);
             try
             {
                 using (var stream = file.OpenReadStream())
@@ -101,28 +109,32 @@ namespace MyPortfolio.Service
                     if (original == null) return ServiceResult<JournalImageUploadResponse>.Fail("無效圖片格式", HttpStatusCode.BadRequest);
                     using (var image = SKImage.FromBitmap(original))
                     using (var data = image.Encode(SKEncodedImageFormat.Webp, 85))
-                    using (var fileStream = new FileStream(filePath, FileMode.Create))
+                    using (var blobUploadStream = data.AsStream())
                     {
-                        data.SaveTo(fileStream);
+                        var blobHttpHeader = new BlobHttpHeaders { ContentType = "image/webp" };
+                        await blobClient.UploadAsync(blobUploadStream, new BlobUploadOptions { HttpHeaders = blobHttpHeader });
                     }
                 }
-                var imageUrl = $"/uploads/journal/{fileName}";
+
+                var imageUrl = blobClient.Uri.ToString();
                 var imageGuid = Guid.NewGuid();
                 var journalImage = new JournalImage
                 {
                     Id = imageGuid,
                     JournalEntryId = journalId,
                     ImageUrl = imageUrl,
-                    LocalFilePath = filePath,
+                    BlobName = fileName,
                     CreatedAt = DateTimeOffset.UtcNow
                 };
+
                 await _journalRepository.AddImageAsync(journalImage);
                 await _journalRepository.SaveChangesAsync();
                 return ServiceResult<JournalImageUploadResponse>.Ok(new JournalImageUploadResponse { Id = imageGuid, ImageUrl = imageUrl });
             }
             catch (Exception ex)
             {
-                SafeDeleteFile(filePath);
+
+                await SafeDeleteBlobAsync(fileName);
                 _logger.LogError(ex, "上傳日誌圖片失敗: {Message}", ex.Message);
                 return ServiceResult<JournalImageUploadResponse>.Fail($"上傳圖片失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
@@ -143,7 +155,7 @@ namespace MyPortfolio.Service
             {
                 foreach (var img in entry.Images)
                 {
-                    SafeDeleteFile(img.LocalFilePath);
+                    await SafeDeleteBlobAsync(img.BlobName);
                 }
             }
 
@@ -160,7 +172,7 @@ namespace MyPortfolio.Service
                 return ServiceResult.Fail("找不到指定的圖片");
 
             // 2. 刪除伺服器硬碟上的實體檔案
-            SafeDeleteFile(image.LocalFilePath);
+            await SafeDeleteBlobAsync(image.BlobName);
 
             // 3. 刪除資料庫紀錄
             _journalRepository.DeleteImage(image);
@@ -193,32 +205,25 @@ namespace MyPortfolio.Service
             Status = (int)entity.Status,
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt,
-            ImageUrls = entity.Images.Select(i => i.ImageUrl).ToList()
+            ImageUrls = entity.Images?.Select(i => i.ImageUrl).ToList() ?? new List<string>()
         };
         // 輔助方法：安全刪除實體檔案，防止路徑穿越
-        private void SafeDeleteFile(string? path)
+        private async Task SafeDeleteBlobAsync(string? blobName)
         {
-            if (string.IsNullOrEmpty(path)) return;
+            if (string.IsNullOrEmpty(blobName)) return;
             try
             {
-                var fullPath = Path.GetFullPath(path);
-                string safeRoot = Path.GetFullPath(_storagePath);
-                if (fullPath.StartsWith(safeRoot, StringComparison.OrdinalIgnoreCase))
+                var blobClient = _containerClient.GetBlobClient(blobName);
+                var response = await blobClient.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots);
+                if (response.Value)
                 {
-                    if (File.Exists(fullPath))
-                    {
-                        File.Delete(fullPath);
-                        _logger.LogInformation("已清理日誌檔案: {FilePath}", fullPath);
-                    }
+                    _logger.LogInformation("已成功清理 Azure Blob 檔案: {BlobName}", blobName);
                 }
-                else
-                {
-                    _logger.LogWarning("拒絕刪除安全目錄外的非法路徑: {FilePath}", fullPath);
-                }
+
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "清理檔案失敗: {FilePath}", path);
+                _logger.LogError(ex, "清理 Azure Blob 檔案失敗: {BlobName}", blobName);
             }
         }
     }

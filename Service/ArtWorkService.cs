@@ -8,6 +8,10 @@ using SkiaSharp;
 using MyPortfolio.Repository;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using Microsoft.Extensions.Configuration;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using System.Reflection.Metadata;
 
 namespace MyPortfolio.Service
 {
@@ -15,13 +19,20 @@ namespace MyPortfolio.Service
     {
         private readonly IArtworkRepository _artworkRepository;
         // 定義一個儲存上傳檔案的路徑，這裡使用 wwwroot/uploads 資料夾
-        private readonly string _storagePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/uploads");
+        private readonly BlobContainerClient _containerClient;
         private readonly ILogger<ArtworkService> _logger;
-        public ArtworkService(IArtworkRepository artworkRepository, ILogger<ArtworkService> logger)
+        public ArtworkService(IArtworkRepository artworkRepository, ILogger<ArtworkService> logger, IConfiguration configuration)
         {
             _artworkRepository = artworkRepository;
             _logger = logger;
-            if (!Directory.Exists(_storagePath)) Directory.CreateDirectory(_storagePath);
+            string connectionString = configuration.GetConnectionString("BlobStorage")
+            ?? throw new InvalidOperationException("找不到 Blob Storage 連線字串。");
+
+            //初始化 Blob 容器用戶端
+            var blobServiceClient = new BlobServiceClient(connectionString);
+            _containerClient = blobServiceClient.GetBlobContainerClient("images");
+            _containerClient.CreateIfNotExists();
+
         }
 
         public async Task<ServiceResult<ArtworkResponse>> SaveArtworkAsync(ArtworkUploadRequest dto)
@@ -30,8 +41,8 @@ namespace MyPortfolio.Service
             var fileGuid = Guid.NewGuid();
             var fileName = $"{fileGuid}.webp";// 原圖使用WebP格式
             var thumbName = $"{fileGuid}_thumb.webp"; // 縮圖使用 WebP 格式
-            var filePath = Path.Combine(_storagePath, fileName);
-            var thumbPath = Path.Combine(_storagePath, thumbName);
+            var blobClient = _containerClient.GetBlobClient(fileName);
+            var thumbBlobClient = _containerClient.GetBlobClient(thumbName);
             try
             {
                 // 1. 儲存實體檔案
@@ -47,9 +58,10 @@ namespace MyPortfolio.Service
                         }
                         using (var image = SKImage.FromBitmap(original))
                         using (var data = image.Encode(SKEncodedImageFormat.Webp, 90))
-                        using (var fileStream = new FileStream(filePath, FileMode.Create))
+                        using (var blobUploadStream = data.AsStream())
                         {
-                            data.SaveTo(fileStream);
+                            var blobHttpHeader = new BlobHttpHeaders { ContentType = "image/webp" };
+                            await blobClient.UploadAsync(blobUploadStream, new BlobUploadOptions { HttpHeaders = blobHttpHeader });
                         }
                         //生成縮圖
                         float ratio = Math.Min(300f / original.Width, 300f / original.Height);
@@ -60,9 +72,10 @@ namespace MyPortfolio.Service
                         using (var resized = original.Resize(new SKImageInfo(width, height), sampling))
                         using (var thumbImage = SKImage.FromBitmap(resized))
                         using (var thumbData = thumbImage.Encode(SKEncodedImageFormat.Webp, 80))
-                        using (var thumbStream = new FileStream(thumbPath, FileMode.Create))
+                        using (var thumbUploadStream = thumbData.AsStream())
                         {
-                            thumbData.SaveTo(thumbStream);
+                            var thumbHttpHeader = new BlobHttpHeaders { ContentType = "image/webp" };
+                            await thumbBlobClient.UploadAsync(thumbUploadStream, new BlobUploadOptions { HttpHeaders = thumbHttpHeader });
                         }
                     }
                 }
@@ -72,8 +85,8 @@ namespace MyPortfolio.Service
                     Title = dto.Title,
                     Description = dto.Description,
                     CategoryId = dto.CategoryId,
-                    ImageUrl = $"/uploads/{fileName}",
-                    ThumbnailUrl = $"/uploads/{thumbName}",
+                    ImageUrl = blobClient.Uri.ToString(),
+                    ThumbnailUrl = thumbBlobClient.Uri.ToString(),
                     CompletionDate = dto.CompletionDate,
                     CreatedAt = DateTime.Now
                 };
@@ -91,8 +104,9 @@ namespace MyPortfolio.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "儲存作品失敗，嘗試清理檔案: {Message}", ex.Message);
-                CleanupFiles(filePath, thumbPath);
+                _logger.LogError(ex, "儲存作品至 Azure Blob 失敗，嘗試清理已上傳的雲端檔案: {Message}", ex.Message);
+                await SafeDeleteBlobAsync(fileName);
+                await SafeDeleteBlobAsync(thumbName);
                 return ServiceResult<ArtworkResponse>.Fail($"儲存作品失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
         }
@@ -130,28 +144,18 @@ namespace MyPortfolio.Service
             var artwork = await _artworkRepository.GetByIdAsync(id);
             if (artwork == null) return ServiceResult.Fail("作品不存在", HttpStatusCode.NotFound);
 
-            // 刪除實體檔案
-            string? filePath = null;
-            if (!string.IsNullOrEmpty(artwork.ImageUrl))
-            {
-                filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", artwork.ImageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            }
-            string? thumbPath = null;
-            if (!string.IsNullOrEmpty(artwork.ThumbnailUrl))
-            {
-                thumbPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", artwork.ThumbnailUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            }
-
-            // 刪除資料庫紀錄
-
+            // 使用交易確保資料庫與雲端檔案同步刪除
             try
             {
+                string? fileName = GetBlobNameFromUrl(artwork.ImageUrl);
+                string? thumbName = GetBlobNameFromUrl(artwork.ThumbnailUrl);
                 await _artworkRepository.ExecuteInTransactionAsync(async () =>
             {
                 _artworkRepository.Remove(artwork);
                 await _artworkRepository.SaveChangesAsync();
             });
-                CleanupFiles(filePath, thumbPath);
+                await SafeDeleteBlobAsync(fileName);
+                await SafeDeleteBlobAsync(thumbName);
                 return ServiceResult.Ok("作品刪除成功");
             }
             catch (Exception ex)
@@ -184,30 +188,37 @@ namespace MyPortfolio.Service
             }
         }
 
-        private void CleanupFiles(params string?[] paths)
+        private async Task SafeDeleteBlobAsync(string? blobName)
         {
-            foreach (var path in paths.Where(p => !string.IsNullOrEmpty(p)))
+            if (string.IsNullOrEmpty(blobName)) return;
+
+            try
             {
-                try
+                var blobClient = _containerClient.GetBlobClient(blobName);
+                var response = await blobClient.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots);
+                if (response.Value)
                 {
-                    var fullPath = Path.GetFullPath(path!);
-                    if (fullPath.StartsWith(_storagePath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (File.Exists(fullPath))
-                        {
-                            File.Delete(fullPath);
-                            _logger.LogInformation("已清理檔案: {FilePath}", fullPath);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogWarning("拒絕刪除目錄外的非法路徑: {FilePath}", fullPath);
-                    }
+                    _logger.LogInformation("已成功清理 Azure Blob 檔案: {BlobName}", blobName);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "清理檔案失敗: {FilePath}", path);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "清理 Azure Blob 檔案失敗: {BlobName}", blobName);
+            }
+        }
+        private string? GetBlobNameFromUrl(string? url)
+        {
+            if (string.IsNullOrEmpty(url)) return null;
+
+            try
+            {
+                var uri = new Uri(url);
+                // uri.Segments.Last() 會取得 URL 最後一個部分（即檔名）
+                return Uri.UnescapeDataString(uri.Segments.Last());
+            }
+            catch
+            {
+                return null;
             }
         }
 

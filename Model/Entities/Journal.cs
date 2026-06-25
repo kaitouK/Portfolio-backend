@@ -70,7 +70,7 @@ namespace MyPortfolio.Model.Entities
 
         [Required]
         [StringLength(255)]
-        public string LocalFilePath { get; set; } = string.Empty; // 儲存後端硬碟的實際路徑 (刪除檔案時需要)
+        public string BlobName { get; set; } = string.Empty; // 儲存後端硬碟的實際路徑 (刪除檔案時需要)
 
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     }

@@ -92,7 +92,7 @@ namespace MyPortfolio.Model
             {
                 entity.HasKey(ji => ji.Id);
                 entity.Property(ji => ji.ImageUrl).IsRequired().HasMaxLength(500);
-                entity.Property(ji => ji.LocalFilePath).IsRequired().HasMaxLength(255);
+                entity.Property(ji => ji.BlobName).IsRequired().HasMaxLength(255);
 
                 // 設定級聯刪除：當日誌被刪除時，自動刪除關聯的圖片紀錄
                 entity.HasOne(ji => ji.JournalEntry)
