@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>63790461-2bf6-472e-98bb-670e118b76c8</UserSecretsId>
+    <ExcludeApp_Data>true</ExcludeApp_Data>
+    <ExcludeFilesFromDeployment>wwwroot\**\*</ExcludeFilesFromDeployment>
   </PropertyGroup>
 
   <ItemGroup>
