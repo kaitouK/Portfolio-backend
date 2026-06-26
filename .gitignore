@@ -433,4 +433,4 @@ appsettings.Production.json
 .secrets.json
 [Kk]eys
 *.db
-wwwroot\*
+wwwroot/*
