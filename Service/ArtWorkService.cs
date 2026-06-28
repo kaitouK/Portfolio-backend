@@ -26,7 +26,7 @@ namespace MyPortfolio.Service
         {
             _artworkRepository = artworkRepository;
             _logger = logger;
-            string? connectionString = configuration.GetSection("AzureBlobStorage")["ConnectionString"];
+            string? connectionString = configuration.GetSection("BlobStorage")["ConnectionString"];
             if (string.IsNullOrEmpty(connectionString))
             {
                 _logger.LogError("Blob Storage 連線字串未正確載入");
@@ -35,7 +35,7 @@ namespace MyPortfolio.Service
 
             //初始化 Blob 容器用戶端
             var blobServiceClient = new BlobServiceClient(connectionString);
-            string? BlobContainerName = configuration.GetSection("AzureBlobStorage")["ContainerName"];
+            string? BlobContainerName = configuration.GetSection("BlobStorage")["ContainerName"];
 
             if (string.IsNullOrEmpty(BlobContainerName))
             {
