@@ -24,7 +24,7 @@ namespace MyPortfolio.Service
             _logger = logger;
             _journalRepository = repository;
             _sanitizer = new HtmlSanitizer();
-            string? connectionString = configuration.GetSection("BlobStorage")["ConnetionString"];
+            string? connectionString = configuration.GetSection("BlobStorage")["ConnectionString"];
             if (string.IsNullOrEmpty(connectionString))
             {
                 _logger.LogError("Blob Storage 連線字串未正確載入");
