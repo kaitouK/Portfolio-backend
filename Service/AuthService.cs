@@ -20,7 +20,7 @@ namespace MyPortfolio.Service
 
         public string GenerateToken(string username)
         {
-            var jwtKey = _configuration.GetSection("Admin")["JwtKey"];
+            var jwtKey = _configuration.GetSection("Jwt")["Secret"];
             if (string.IsNullOrEmpty(jwtKey))
             {
                 _logger.LogError("JWT Key 未正確載入");
@@ -37,8 +37,8 @@ namespace MyPortfolio.Service
             };
             //JWT簽發
             var token = new JwtSecurityToken(
-                issuer: "MyPortfolio",
-                audience: "MyPortfolio",
+                issuer: _configuration.GetSection("Jwt")["Issuer"],
+                audience: _configuration.GetSection("Jwt")["Audience"],
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(30),
                 signingCredentials: creds);

@@ -99,6 +99,7 @@ namespace MyPortfolio.Controller
                 authDto.DisplayName = User.FindFirstValue(ClaimTypes.Name);
                 authDto.Role = User.IsInRole("Admin") ? "admin" : "user"; // 直接從 JWT 內建的 Role 判斷
 
+
                 RenewSession(email);
             }
             return ProcessApiResponse(ApiResponse<object>.Ok(authDto));
@@ -118,7 +119,8 @@ namespace MyPortfolio.Controller
                 HttpOnly = true,
                 Secure = true,
                 SameSite = SameSiteMode.None, // 若為跨域開發環境，需保持 None；若同網域建議改為 Lax
-                Path = "/"
+                Path = "/",
+                IsEssential = true
             };
             if (expires.HasValue)
             {

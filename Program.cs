@@ -57,10 +57,11 @@ builder.Services.AddAuthentication(Options =>
 .AddJwtBearer(options =>
 {
     //JwtKey需與AuthService相同
-    var jwtKey = builder.Configuration.GetSection("Admin")["JwtKey"];
+    var jwtKey = builder.Configuration.GetSection("Jwt")["Secret"];
     if (string.IsNullOrEmpty(jwtKey) || jwtKey.Length < 32)
     {
-        throw new InvalidOperationException("【嚴重安全錯誤】JWT Secret Key 遺失或長度不足 32 bytes！請檢查環境變數或 User-Secrets。");
+        Log.Fatal("JWT Secret Key 遺失或長度不足 32 bytes！請檢查環境變數或 User-Secrets。");
+        throw new InvalidOperationException("JWT Secret Key 遺失或長度不足 32 bytes！請檢查環境變數或 User-Secrets。");
     }
     var key = Encoding.UTF8.GetBytes(jwtKey);
 
@@ -70,8 +71,8 @@ builder.Services.AddAuthentication(Options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = "MyPortfolio",  // 需與 AuthService 簽發時對應
-        ValidAudience = "MyPortfolio",
+        ValidIssuer = builder.Configuration.GetSection("Jwt")["Issuer"],  // 需與 AuthService 簽發時對應
+        ValidAudience = builder.Configuration.GetSection("Jwt")["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key),
         ClockSkew = TimeSpan.Zero,
         RoleClaimType = ClaimTypes.Role // 告訴系統從哪個 Claim 讀取角色資訊
@@ -135,8 +136,15 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins("https://localhost:5173"
-        , "https://kaitouk.github.io"
+        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+        {
+            if (allowedOrigins == null || allowedOrigins.Length == 0)
+            {
+                Log.Fatal("CORS允許的來源網域未設定或為空");
+                throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
+            }
+        }
+        policy.WithOrigins(allowedOrigins
         ) // React 開發伺服器的預設 URL
               .AllowAnyHeader()
               .AllowAnyMethod()
@@ -160,8 +168,47 @@ app.Use(async (context, next) =>
     // 允許 Google 登入的彈出視窗正常與 React 母網頁通訊
     context.Response.Headers.Append("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
 
-    // （選配）有時也需要放寬這個標頭
-    context.Response.Headers.Append("Cross-Origin-Embedder-Policy", "require-corp");
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+
+    context.Response.Headers["Referrer-Policy"] =
+        "strict-origin-when-cross-origin";
+
+    context.Response.Headers["Permissions-Policy"] =
+        "camera=(), microphone=(), geolocation=()";
+
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+
+    if (context.Request.Path.StartsWithSegments("/api/auth"))
+    {
+        await next();
+        return;
+    }
+    if (context.User.Identity?.IsAuthenticated == true &&
+      (HttpMethods.IsPost(context.Request.Method) ||
+       HttpMethods.IsPut(context.Request.Method) ||
+       HttpMethods.IsDelete(context.Request.Method) ||
+       HttpMethods.IsPatch(context.Request.Method)))
+    {
+
+        var origin = context.Request.Headers.Origin.ToString();
+
+        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+        {
+            if (allowedOrigins == null || allowedOrigins.Length == 0)
+            {
+                Log.Fatal("CORS允許的來源網域未設定或為空");
+                throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
+            }
+        }
+
+        if (string.IsNullOrEmpty(origin) ||
+            !allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsync("Invalid Origin");
+            return;
+        }
+    }
 
     await next();
 });

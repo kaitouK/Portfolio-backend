@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using System.Reflection.Metadata;
+using Serilog;
 
 namespace MyPortfolio.Service
 {
@@ -25,12 +26,24 @@ namespace MyPortfolio.Service
         {
             _artworkRepository = artworkRepository;
             _logger = logger;
-            string connectionString = configuration.GetConnectionString("BlobStorage")
-            ?? throw new InvalidOperationException("找不到 Blob Storage 連線字串。");
+            string? connectionString = configuration.GetSection("AzureBlobStorage")["ConnectionString"];
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                _logger.LogError("Blob Storage 連線字串未正確載入");
+                throw new InvalidOperationException("Blob Storage 連線字串未正確載入");
+            }
 
             //初始化 Blob 容器用戶端
             var blobServiceClient = new BlobServiceClient(connectionString);
-            _containerClient = blobServiceClient.GetBlobContainerClient("images");
+            string? BlobContainerName = configuration.GetSection("AzureBlobStorage")["ContainerName"];
+
+            if (string.IsNullOrEmpty(BlobContainerName))
+            {
+                _logger.LogError("Blob Container 名稱 未正確載入");
+                throw new InvalidOperationException("Blob Container 名稱 未正確載入");
+            }
+
+            _containerClient = blobServiceClient.GetBlobContainerClient(BlobContainerName);
             _containerClient.CreateIfNotExists();
 
         }
