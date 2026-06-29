@@ -428,6 +428,7 @@ FodyWeavers.xsd
 *.msm
 *.msp
 #環境密碼設定檔
+appsettings.*
 appsettings.json
 appsettings.Production.json
 .secrets.json
