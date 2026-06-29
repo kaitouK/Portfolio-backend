@@ -123,17 +123,49 @@ namespace MyPortfolio.Service
                 return ServiceResult<ArtworkResponse>.Fail($"儲存作品失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
         }
-        public async Task<ServiceResult<IEnumerable<ArtworkDto>>> GetAllArtworksAsync()
+        public async Task<ServiceResult<CursorPagedResult<ArtworkDto>>> GetPagedArtworksAsync(int limit = 10, string? cursor = null)
         {
             try
             {
-                var artworks = await _artworkRepository.GetAllWithDtoAsync();
-                return ServiceResult<IEnumerable<ArtworkDto>>.Ok(artworks);
+                DateTime? cursorDate = null;
+                int? cursorId = null;
+
+                // 在 Service 層解析字串 
+                if (!string.IsNullOrEmpty(cursor) && cursor.Contains('_'))
+                {
+                    var parts = cursor.Split('_');
+                    if (parts.Length == 2 &&
+                        DateTime.TryParse(parts[0], out var date) &&
+                        int.TryParse(parts[1], out int id))
+                    {
+                        cursorDate = date;
+                        cursorId = id;
+                    }
+                }
+
+                //  呼叫 Repository
+                var (data, hasNextPage) = await _artworkRepository.GetPagedArtworksAsync(limit, cursorDate, cursorId);
+
+                // 3. 在 Service 層組裝下一個游標字串
+                string? nextCursor = null;
+                if (hasNextPage && data.Any())
+                {
+                    var lastItem = data.Last(); // 因為 Repo 已經 RemoveAt 了，這裏的 Last 就是最後一筆
+                    nextCursor = $"{lastItem.CompletionDate:yyyy-MM-ddTHH:mm:ss.fff}_{lastItem.ArtworkId}";
+                }
+
+                var pagedResult = new CursorPagedResult<ArtworkDto>
+                {
+                    Data = data,
+                    NextCursor = nextCursor
+                };
+
+                return ServiceResult<CursorPagedResult<ArtworkDto>>.Ok(pagedResult);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "取得作品列表失敗: {Message}", ex.Message);
-                return ServiceResult<IEnumerable<ArtworkDto>>.Fail($"取得作品列表失敗: {ex.Message}", HttpStatusCode.InternalServerError);
+                return ServiceResult<CursorPagedResult<ArtworkDto>>.Fail($"取得作品列表失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
         }
         public async Task<ServiceResult<ArtworkDto>> GetArtworkByIdAsync(int id)

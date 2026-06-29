@@ -32,7 +32,9 @@ namespace MyPortfolio.Repository
         Task SaveChangesAsync();
 
         // 複雜查詢
-        Task<IEnumerable<ArtworkDto>> GetAllWithDtoAsync();
+        Task<(IEnumerable<ArtworkDto> Data, bool HasNextPage)> GetPagedArtworksAsync(int limit,
+    DateTime? cursorDate,
+    int? cursorId);
         Task<ArtworkDto?> GetDtoByIdAsync(int id);
 
         // 事務處理
@@ -71,14 +73,38 @@ namespace MyPortfolio.Repository
         }
 
         // 將複雜的 Select 邏輯封裝在這裡
-        public async Task<IEnumerable<ArtworkDto>> GetAllWithDtoAsync()
+        public async Task<(IEnumerable<ArtworkDto> Data, bool HasNextPage)> GetPagedArtworksAsync(
+    int limit,
+    DateTime? cursorDate,
+    int? cursorId)
         {
-            return await _context.Artworks
+            var query = _context.Artworks
                 .Where(a => a.IsGalleryVisible)
-                .AsNoTracking()
-                .OrderByDescending(a => a.CreatedAt)
+                .AsNoTracking();
+
+            // 只處理純粹的資料過濾邏輯
+            if (cursorDate.HasValue && cursorId.HasValue)
+            {
+                query = query.Where(a =>
+                    a.CompletionDate < cursorDate.Value ||
+                    (a.CompletionDate == cursorDate.Value && a.ArtworkId < cursorId.Value));
+            }
+
+            var artworks = await query
+                .OrderByDescending(a => a.CompletionDate)
+                .ThenByDescending(a => a.ArtworkId)
+                .Take(limit + 1) // 依然多拿一筆來判斷有無下一頁
                 .ProjectToDto()
                 .ToListAsync();
+
+            bool hasNextPage = artworks.Count > limit;
+
+            if (hasNextPage)
+            {
+                artworks.RemoveAt(limit); // 移除多抓的那一筆
+            }
+
+            return (artworks, hasNextPage);
         }
 
         public async Task<ArtworkDto?> GetDtoByIdAsync(int id)

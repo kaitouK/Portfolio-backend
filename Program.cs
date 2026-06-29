@@ -16,6 +16,7 @@ using Serilog;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
+using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -137,13 +138,13 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReactApp", policy =>
     {
         var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+
+        if (allowedOrigins == null || allowedOrigins.Length == 0)
         {
-            if (allowedOrigins == null || allowedOrigins.Length == 0)
-            {
-                Log.Fatal("CORS允許的來源網域未設定或為空");
-                throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
-            }
+            Log.Fatal("CORS允許的來源網域未設定或為空");
+            throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
         }
+
         policy.WithOrigins(allowedOrigins
         ) // React 開發伺服器的預設 URL
               .AllowAnyHeader()
@@ -161,8 +162,25 @@ var forwardedHeadersOptions = new ForwardedHeadersOptions
 forwardedHeadersOptions.KnownIPNetworks.Clear(); // 加上這行，允許來自 Azure 的轉發
 forwardedHeadersOptions.KnownProxies.Clear();  // 加上這行，允許來自 Azure 的轉發
 forwardedHeadersOptions.ForwardLimit = 1;
+if (!app.Environment.IsDevelopment())
+{
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+}
 
-app.UseForwardedHeaders(forwardedHeadersOptions);
+app.UseDefaultFiles(); // 允許服務預設的靜態檔案（如 wwwroot 資料夾中的檔案）
+app.UseStaticFiles(); // 允許服務靜態檔案（如上傳的圖片）
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+app.UseRouting();//先路由
+
+app.UseCors("AllowReactApp");//再使用 CORS 中介軟體，確保它在路由之後，這樣才能正確處理跨域請求
+
+app.UseRateLimiter();//啟用rate limiter
+app.UseAuthentication(); // 
+
 app.Use(async (context, next) =>
 {
     // 允許 Google 登入的彈出視窗正常與 React 母網頁通訊
@@ -212,24 +230,13 @@ app.Use(async (context, next) =>
 
     await next();
 });
-app.UseDefaultFiles(); // 允許服務預設的靜態檔案（如 wwwroot 資料夾中的檔案）
-app.UseStaticFiles(); // 允許服務靜態檔案（如上傳的圖片）
-if (!app.Environment.IsDevelopment())
-    app.UseHttpsRedirection();
-
-app.UseRouting();//先路由
-
-app.UseCors("AllowReactApp");//再使用 CORS 中介軟體，確保它在路由之後，這樣才能正確處理跨域請求
-
-app.UseRateLimiter();//啟用rate limiter
-app.UseAuthentication(); // 再認證
 app.UseAuthorization(); // 最後授權
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-
     app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
 app.MapControllers().RequireRateLimiting("GlobalPolicy");

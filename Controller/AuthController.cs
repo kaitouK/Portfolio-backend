@@ -94,6 +94,8 @@ namespace MyPortfolio.Controller
             if (User.Identity?.IsAuthenticated == true)
             {
                 var email = User.FindFirstValue(ClaimTypes.Email);
+                if (string.IsNullOrEmpty(email))
+                    return ProcessApiResponse(ApiResponse.Fail("找不到使用者Email", 400));
                 authDto.IsAuthenticated = true;
                 authDto.Email = email;
                 authDto.DisplayName = User.FindFirstValue(ClaimTypes.Name);

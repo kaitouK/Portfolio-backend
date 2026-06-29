@@ -99,4 +99,10 @@ namespace MyPortfolio.DTOs
         public string ImageUrl { get; set; } = string.Empty; // 用於插入 Tiptap 的 src
         public Guid Id { get; set; }
     }
+    public class CursorPagedResult<T>
+    {
+        public IEnumerable<T> Data { get; set; } = new List<T>();
+        public string? NextCursor { get; set; }
+        public bool HasNextPage => !string.IsNullOrEmpty(NextCursor);
+    }
 }

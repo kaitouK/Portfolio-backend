@@ -76,11 +76,14 @@ public class ArtworksController : BaseApiController
     }
     //網址: GET /api/artworks
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetArtworks([FromQuery] int limit = 10, [FromQuery] string? cursor = null)
     {
         try
         {
-            var result = await _artworkService.GetAllArtworksAsync();
+            //限制單次最大載入量，避免癱瘓資料庫
+            if (limit > 50) limit = 50;
+            if (limit <= 0) limit = 10;//確保limit是合理正整數
+            var result = await _artworkService.GetPagedArtworksAsync(limit, cursor);
             return ProcessApiResponse(result);
         }
         catch (Exception ex)
@@ -89,6 +92,7 @@ public class ArtworksController : BaseApiController
             return ProcessApiResponse(ApiResponse.Fail("取得作品列表失敗，請稍後再試", 500));
         }
     }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {

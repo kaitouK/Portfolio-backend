@@ -433,5 +433,7 @@ appsettings.json
 appsettings.Production.json
 .secrets.json
 [Kk]eys
+#靜態物件(資料庫/圖片)
 *.db
+*.db.*
 wwwroot/*
