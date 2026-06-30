@@ -19,8 +19,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
-    .WriteTo.File("logs/myapp-.txt", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30) // 每天自動生成新檔案，如 myapp-20260531.txt
+   .ReadFrom.Configuration(builder.Configuration)//改成讀取環境變數
     .CreateLogger();
 builder.Host.UseSerilog();
 
@@ -175,6 +174,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseRouting();//先路由
+app.UseSerilogRequestLogging();//濃縮ASP.NET Cor Log日誌
 
 app.UseCors("AllowReactApp");//再使用 CORS 中介軟體，確保它在路由之後，這樣才能正確處理跨域請求
 

@@ -321,6 +321,36 @@ Create an `appsettings.Development.json` (or modify `appsettings.json`) and conf
 
 ```json
 {
+  "Serilog": {
+    "Using": [
+      "Serilog.Sinks.Console",
+      "Serilog.Sinks.File",
+      "Serilog.Sinks.Seq",
+      "Serilog.Enrichers.Environment",
+      "Serilog.Enrichers.Thread"
+    ],
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "Microsoft.AspNetCore": "Warning"
+      }
+    },
+    "WriteTo": [
+      { "Name": "Console" },
+      {
+        "Name": "File",
+        "Args": {
+          "Path": "logs/myapp-.txt",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 30
+        }
+      },
+      { "Name": "Seq", "Args": { "serverUrl": "your Seq server url" } }
+    ],
+    "Enrich": ["FromLogContext", "WithMachineName", "WithThreadId"]
+  },
+  "AllowedHosts": "*",
   "ConnectionStrings": {
     "DefaultConnection": "Data Source=MyPortfolio.db;",
     "BlobStorage": ""
@@ -429,16 +459,19 @@ Production configuration should **NOT** be committed into the repository.
 
 Instead, configure the following settings inside **Azure Portal → App Service → Environment Variables**.
 
-| Setting                                | Description                               |
-| -------------------------------------- | ----------------------------------------- |
-| `ConnectionStrings__DefaultConnection` | Production database connection string     |
-| `ConnectionStrings__BlobStorage`       | Blob storage connection string (optional) |
-| `Jwt__Issuer`                          | JWT issuer                                |
-| `Jwt__Audience`                        | Frontend domain                           |
-| `Jwt__Secret`                          | JWT signing secret                        |
-| `AzureBlobStorage__ConnectionString`   | Azure Blob Storage connection string      |
-| `AzureBlobStorage__ContainerName`      | Blob Storage container                    |
-| `Admin__Email`                         | Administrator Google account whitelist    |
+| Key                                    | Default/Example Value           | Description                                                |
+| :------------------------------------- | :------------------------------ | :--------------------------------------------------------- |
+| `ConnectionStrings__DefaultConnection` | `Server=tcp:...`                | Production database connection string                      |
+| `ConnectionStrings__BlobStorage`       | `DefaultEndpointsProtocol=...`  | Blob storage connection string (optional)                  |
+| `Jwt__Issuer`                          | `https://yourdomain.com`        | JWT issuer                                                 |
+| `Jwt__Audience`                        | `https://frontend.com`          | Frontend domain                                            |
+| `Jwt__Secret`                          | `your_super_secret_key_here...` | JWT signing secret                                         |
+| `AzureBlobStorage__ConnectionString`   | `DefaultEndpointsProtocol=...`  | Azure Blob Storage connection string                       |
+| `AzureBlobStorage__ContainerName`      | `uploads`                       | Blob Storage container                                     |
+| `Admin__Email`                         | `admin@gmail.com`               | Administrator Google account whitelist                     |
+| `Serilog__Using__0`                    | `Serilog.Sinks.Console`         | Loads the Serilog Console sink package                     |
+| `Serilog__MinimumLevel__Default`       | `Information`                   | Core log level (can be changed to Warning for production)  |
+| `Serilog__WriteTo__0__Name`            | `Console`                       | Redirects logs to stdout/Console only (excluding Seq/File) |
 
 > ASP.NET Core automatically maps environment variables using double underscores (`__`) to nested configuration sections.
 
@@ -459,7 +492,7 @@ Every push to the `main` branch automatically performs the following steps:
 - Tag System
 - Refresh Token authentication
 - Search and filtering APIs
-- Pagination
+- Pagination(developed, to be updated)
 - Redis cache
 - Unit Testing
 - Integration Testing

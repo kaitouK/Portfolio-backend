@@ -78,7 +78,7 @@ namespace MyPortfolio.Controller
                     DisplayName = payload.Name,
                     Role = "admin"
                 };
-
+                _logger.LogInformation("Google 登入成功並已簽發 JWT Cookie。用戶資訊 -> Email: {Email}, Name: {Name},Location: {Location}", payload.Email, payload.Name, payload.Locale);
                 return ProcessApiResponse(ApiResponse<object>.Ok(authStatus, "登入成功"));
             }
             catch (InvalidJwtException)
