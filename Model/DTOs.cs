@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using MyPortfolio.Model.Entities;
+using System.Text.Json.Serialization;
 namespace MyPortfolio.DTOs
 {
     public class ArtworkUploadRequest
@@ -102,7 +103,9 @@ namespace MyPortfolio.DTOs
     public class CursorPagedResult<T>
     {
         public IEnumerable<T> Data { get; set; } = new List<T>();
+        [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
         public string? NextCursor { get; set; }
+        [JsonInclude]
         public bool HasNextPage => !string.IsNullOrEmpty(NextCursor);
     }
 }
