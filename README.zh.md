@@ -20,7 +20,8 @@
 | SkiaSharp                | 圖片壓縮 / 縮圖生成           |
 | HtmlSanitizer            | HTML 淨化 (防範 XSS 攻擊)     |
 | Serilog                  | 日誌記錄                      |
-| Swagger                  | API 文件                      |
+| Scalar (OpenAPI)         | API 文件                      |
+| Rate Limiting            | 固定時間窗口的請求限流        |
 
 ---
 
@@ -91,8 +92,8 @@
 ├── Model
 │   ├── ApiResponse.cs
 │   ├── ServiceResult.cs
-│   ├── DTOs
-│   ├── DbContext
+│   ├── DTOs.cs
+│   ├── DbContext.cs
 │   └── Entities
 │
 ├── Repository                    # 資料庫存取層
@@ -108,7 +109,10 @@
 ├── Utility
 │   └── ImageValidator.cs
 │
-├── MyDatabase.db
+├── Keys                           # JWT / Data Protection 金鑰（已加入 .gitignore）
+├── wwwroot/uploads                # 作品與日誌的上傳圖片
+│
+├── MyPortfolio.db
 └── Program.cs
 
 ```
@@ -219,6 +223,21 @@ SQLite
 
 ---
 
+## 分類
+
+基礎路由
+
+```
+/api/category
+
+```
+
+| 方法 | 端點 | 權限 | 描述         |
+| ---- | ---- | ---- | ------------ |
+| GET  | `/`  | 公開 | 取得所有分類 |
+
+---
+
 ## 日誌
 
 基礎路由
@@ -292,6 +311,10 @@ JournalEntry
 - 授權原則 (`AdminOnly`)
 - 集中式例外狀況處理
 - 使用 Serilog 進行結構化日誌記錄
+- 固定時間窗口限流（每個政策 15 分鐘內最多 100 次請求）
+- 強化回應標頭（COOP、X-Content-Type-Options、Referrer-Policy、Permissions-Policy、X-Frame-Options）
+- 已登入使用者對 POST/PUT/DELETE/PATCH 請求的 Origin 白名單二次驗證
+- 支援 Azure 反向代理的 Forwarded Headers
 
 ---
 
@@ -361,8 +384,7 @@ Azure Blob Storage
   },
   "AllowedHosts": "*",
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=MyPortfolio.db;",
-    "BlobStorage": ""
+    "DefaultConnection": "Data Source=MyPortfolio.db;"
   },
 
   "Jwt": {
@@ -371,9 +393,17 @@ Azure Blob Storage
     "Secret": "你的超級秘密JWT密鑰至少需32字元"
   },
 
-  "AzureBlobStorage": {
+  "BlobStorage": {
     "ConnectionString": "你的 Azure Blob Storage 連線字串",
     "ContainerName": "你的容器名稱"
+  },
+
+  "AllowedOrigins": ["https://localhost:5173"],
+
+  "Authentication": {
+    "Google": {
+      "ClientId": "你的 Google OAuth Client ID"
+    }
   },
 
   "Admin": {
@@ -384,16 +414,18 @@ Azure Blob Storage
 
 ### 設定說明
 
-| 鍵值 (Key)                            | 描述                                           |
-| ------------------------------------- | ---------------------------------------------- |
-| `ConnectionStrings:DefaultConnection` | SQLite 資料庫連線字串                          |
-| `ConnectionStrings:BlobStorage`       | 保留的連線字串 (選填)                          |
-| `Jwt:Issuer`                          | JWT 發行者                                     |
-| `Jwt:Audience`                        | 允許的前端來源 (Origin)                        |
-| `Jwt:Secret`                          | 用於簽署 JWT Token 的密鑰 (建議至少 32 個字元) |
-| `AzureBlobStorage:ConnectionString`   | Azure Blob Storage 連線字串                    |
-| `AzureBlobStorage:ContainerName`      | Blob Storage 容器名稱                          |
-| `Admin:Email`                         | 管理員 Google 帳號白名單                       |
+| 鍵值 (Key)                            | 描述                                                     |
+| ------------------------------------- | -------------------------------------------------------- |
+| `ConnectionStrings:DefaultConnection` | SQLite 資料庫連線字串                                    |
+| `Jwt:Issuer`                          | JWT 發行者                                               |
+| `Jwt:Audience`                        | 允許的前端來源 (Origin)                                  |
+| `Jwt:Secret`                          | 用於簽署 JWT Token 的密鑰 (建議至少 32 個字元)           |
+| `BlobStorage:ConnectionString`        | Azure Blob Storage 連線字串                              |
+| `BlobStorage:ContainerName`           | Blob Storage 容器名稱                                    |
+| `AllowedOrigins`                      | 允許的 CORS 來源陣列；未設定時應用程式啟動會直接拋出例外 |
+| `Authentication:Google:ClientId`      | 用於驗證 Google ID Token Audience 的 OAuth Client ID     |
+| `Admin:Email`                         | 管理員 Google 帳號白名單                                 |
+| `Admin:Email`                         | 管理員 Google 帳號白名單                                 |
 
 ---
 
@@ -473,19 +505,20 @@ Azure Web App (應用程式服務)
 
 請改為在 **Azure Portal → App Service (應用程式服務) → Environment Variables (環境變數)** 中配置以下設定：
 
-| 設定項目 (Key)                         | 預設/範例值 (Value)             | 描述                                       |
-| :------------------------------------- | :------------------------------ | :----------------------------------------- |
-| `ConnectionStrings__DefaultConnection` | `Server=tcp:...`                | 正式環境資料庫連線字串                     |
-| `ConnectionStrings__BlobStorage`       | `DefaultEndpointsProtocol=...`  | Blob Storage 連線字串 (選填)               |
-| `Jwt__Issuer`                          | `https://yourdomain.com`        | JWT 發行者                                 |
-| `Jwt__Audience`                        | `https://frontend.com`          | 前端網域                                   |
-| `Jwt__Secret`                          | `your_super_secret_key_here...` | JWT 簽署密鑰                               |
-| `AzureBlobStorage__ConnectionString`   | `DefaultEndpointsProtocol=...`  | Azure Blob Storage 連線字串                |
-| `AzureBlobStorage__ContainerName`      | `uploads`                       | Blob Storage 容器名稱                      |
-| `Admin__Email`                         | `admin@gmail.com`               | 管理員 Google 帳號白名單                   |
-| `Serilog__Using__0`                    | `Serilog.Sinks.Console`         | 載入 Serilog 的 Console 輸出套件           |
-| `Serilog__MinimumLevel__Default`       | `Information`                   | 核心日誌等級（正式環境可改為 `Warning`）   |
-| `Serilog__WriteTo__0__Name`            | `Console`                       | 指定日誌僅輸出至主機控制台 (拔除 Seq/File) |
+| 設定項目 (Key)                         | 預設/範例值 (Value)               | 描述                                       |
+| :------------------------------------- | :-------------------------------- | :----------------------------------------- |
+| `ConnectionStrings__DefaultConnection` | `Server=tcp:...`                  | 正式環境資料庫連線字串                     |
+| `Jwt__Issuer`                          | `https://yourdomain.com`          | JWT 發行者                                 |
+| `Jwt__Audience`                        | `https://frontend.com`            | 前端網域                                   |
+| `Jwt__Secret`                          | `your_super_secret_key_here...`   | JWT 簽署密鑰                               |
+| `BlobStorage__ConnectionString`        | `DefaultEndpointsProtocol=...`    | Azure Blob Storage 連線字串                |
+| `BlobStorage__ContainerName`           | `uploads`                         | Blob Storage 容器名稱                      |
+| `AllowedOrigins__0`                    | `https://yourdomain.com`          | 允許的 CORS 來源（每個來源一個索引）       |
+| `Authentication__Google__ClientId`     | `xxxx.apps.googleusercontent.com` | Google OAuth Client ID                     |
+| `Admin__Email`                         | `admin@gmail.com`                 | 管理員 Google 帳號白名單                   |
+| `Serilog__Using__0`                    | `Serilog.Sinks.Console`           | 載入 Serilog 的 Console 輸出套件           |
+| `Serilog__MinimumLevel__Default`       | `Information`                     | 核心日誌等級（正式環境可改為 `Warning`）   |
+| `Serilog__WriteTo__0__Name`            | `Console`                         | 指定日誌僅輸出至主機控制台 (拔除 Seq/File) |
 
 > 💡 **備註：** ASP.NET Core 會自動將使用雙底線 (`__`) 的環境變數對應到巢狀設定區塊中。
 

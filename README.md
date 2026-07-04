@@ -19,7 +19,8 @@ The project adopts a **Frontend/Backend Separation** architecture. It provides R
 | SkiaSharp                   | Image Compression / Thumbnail Generation |
 | HtmlSanitizer               | HTML Sanitization (XSS Protection)       |
 | Serilog                     | Logging                                  |
-| Swagger                     | API Documentation                        |
+| Scalar (OpenAPI)            | API Documentation                        |
+| Rate Limiting               | Fixed-window request throttling          |
 
 ---
 
@@ -90,8 +91,8 @@ The project adopts a **Frontend/Backend Separation** architecture. It provides R
 ├── Model
 │   ├── ApiResponse.cs
 │   ├── ServiceResult.cs
-│   ├── DTOs
-│   ├── DbContext
+│   ├── DTOs.cs
+│   ├── DbContext.cs
 │   └── Entities
 │
 ├── Repository                    # Database access layer
@@ -107,7 +108,10 @@ The project adopts a **Frontend/Backend Separation** architecture. It provides R
 ├── Utility
 │   └── ImageValidator.cs
 │
-├── MyDatabase.db
+├── Keys                           # JWT / Data Protection keys (gitignored)
+├── wwwroot/uploads                # Uploaded artwork & journal images
+│
+├── MyPortfolio.db
 └── Program.cs
 ```
 
@@ -214,6 +218,20 @@ Base Route
 
 ---
 
+## Category
+
+Base Route
+
+```
+/api/category
+```
+
+| Method | Endpoint | Permission | Description        |
+| ------ | -------- | ---------- | ------------------- |
+| GET    | `/`      | Public     | Get all categories  |
+
+---
+
 ## Journal
 
 Base Route
@@ -284,6 +302,10 @@ JournalEntry
 - Authorization Policy (`AdminOnly`)
 - Centralized exception handling
 - Structured logging with Serilog
+- Fixed-window rate limiting (100 requests / 15 minutes per policy)
+- Hardened response headers (COOP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, X-Frame-Options)
+- Origin allowlist re-check on authenticated write requests (POST/PUT/DELETE/PATCH)
+- Forwarded headers support behind Azure's reverse proxy
 
 ---
 
@@ -352,8 +374,7 @@ Create an `appsettings.Development.json` (or modify `appsettings.json`) and conf
   },
   "AllowedHosts": "*",
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=MyPortfolio.db;",
-    "BlobStorage": ""
+    "DefaultConnection": "Data Source=MyPortfolio.db;"
   },
 
   "Jwt": {
@@ -362,9 +383,17 @@ Create an `appsettings.Development.json` (or modify `appsettings.json`) and conf
     "Secret": "YourSuperSecretJwtKeyAtLeast32bits"
   },
 
-  "AzureBlobStorage": {
+  "BlobStorage": {
     "ConnectionString": "Your Azure Blob Storage Connection String",
     "ContainerName": "Your Container Name"
+  },
+
+  "AllowedOrigins": ["https://localhost:5173"],
+
+  "Authentication": {
+    "Google": {
+      "ClientId": "Your Google OAuth Client ID"
+    }
   },
 
   "Admin": {
@@ -378,12 +407,13 @@ Create an `appsettings.Development.json` (or modify `appsettings.json`) and conf
 | Key                                   | Description                                                           |
 | ------------------------------------- | --------------------------------------------------------------------- |
 | `ConnectionStrings:DefaultConnection` | SQLite database connection string                                     |
-| `ConnectionStrings:BlobStorage`       | Reserved connection string (optional)                                 |
 | `Jwt:Issuer`                          | JWT issuer                                                            |
 | `Jwt:Audience`                        | Allowed frontend origin                                               |
 | `Jwt:Secret`                          | Secret key used to sign JWT tokens (recommend at least 32 characters) |
-| `AzureBlobStorage:ConnectionString`   | Azure Blob Storage connection string                                  |
-| `AzureBlobStorage:ContainerName`      | Blob Storage container name                                           |
+| `BlobStorage:ConnectionString`        | Azure Blob Storage connection string                                  |
+| `BlobStorage:ContainerName`           | Blob Storage container name                                           |
+| `AllowedOrigins`                      | Array of allowed CORS origins; required at startup or the app throws  |
+| `Authentication:Google:ClientId`      | Google OAuth Client ID used to validate the ID Token audience         |
 | `Admin:Email`                         | Administrator Google account whitelist                                |
 
 ---
@@ -462,12 +492,13 @@ Instead, configure the following settings inside **Azure Portal → App Service 
 | Key                                    | Default/Example Value           | Description                                                |
 | :------------------------------------- | :------------------------------ | :--------------------------------------------------------- |
 | `ConnectionStrings__DefaultConnection` | `Server=tcp:...`                | Production database connection string                      |
-| `ConnectionStrings__BlobStorage`       | `DefaultEndpointsProtocol=...`  | Blob storage connection string (optional)                  |
 | `Jwt__Issuer`                          | `https://yourdomain.com`        | JWT issuer                                                 |
 | `Jwt__Audience`                        | `https://frontend.com`          | Frontend domain                                            |
 | `Jwt__Secret`                          | `your_super_secret_key_here...` | JWT signing secret                                         |
-| `AzureBlobStorage__ConnectionString`   | `DefaultEndpointsProtocol=...`  | Azure Blob Storage connection string                       |
-| `AzureBlobStorage__ContainerName`      | `uploads`                       | Blob Storage container                                     |
+| `BlobStorage__ConnectionString`        | `DefaultEndpointsProtocol=...`  | Azure Blob Storage connection string                       |
+| `BlobStorage__ContainerName`           | `uploads`                       | Blob Storage container                                     |
+| `AllowedOrigins__0`                    | `https://yourdomain.com`        | Allowed CORS origin (index per entry)                      |
+| `Authentication__Google__ClientId`     | `xxxx.apps.googleusercontent.com` | Google OAuth Client ID                                   |
 | `Admin__Email`                         | `admin@gmail.com`               | Administrator Google account whitelist                     |
 | `Serilog__Using__0`                    | `Serilog.Sinks.Console`         | Loads the Serilog Console sink package                     |
 | `Serilog__MinimumLevel__Default`       | `Information`                   | Core log level (can be changed to Warning for production)  |
