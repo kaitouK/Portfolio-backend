@@ -30,8 +30,12 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - run: dotnet test MyPortfolio.Tests --no-restore
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: "KaitouK-portfolio"
           package: publish
+          clean: true
+          restart: true
