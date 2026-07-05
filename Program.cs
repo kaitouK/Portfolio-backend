@@ -18,6 +18,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
+
 Log.Logger = new LoggerConfiguration()
    .ReadFrom.Configuration(builder.Configuration)//改成讀取環境變數
     .CreateLogger();
@@ -105,6 +106,11 @@ builder.Services.AddAuthorization(options =>
 });
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
+if (string.IsNullOrEmpty(connectionString))
+{
+    Log.Fatal("資料庫連線字串缺失，請檢查 appsettings 或環境變數");
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection ismissing");
+}
 // 如果是在 Azure 環境（Linux），確保資料夾存在
 if (connectionString.Contains("/home/data/"))
 {
