@@ -29,7 +29,9 @@ namespace MyPortfolio.Repository
 
         public async Task<JournalEntry?> GetActiveDraftAsync()
         {
-            return await _context.Set<JournalEntry>()
+            return await _context.JournalEntries
+                .Include(j => j.JournalTags)
+                .Include(j => j.Images)
                 .FirstOrDefaultAsync(j => j.Status == JournalStatus.Draft);
         }
 
@@ -42,16 +44,21 @@ namespace MyPortfolio.Repository
                 query = query.Include(j => j.Images);
             }
 
-            return await query.FirstOrDefaultAsync(j => j.Id == id);
+            return await query
+                .Include(j => j.JournalTags)
+                .FirstOrDefaultAsync(j => j.Id == id);
         }
 
         public async Task<List<JournalEntry>> GetPublishedListAsync()
         {
-            var list = await _context.Set<JournalEntry>()
-                .AsNoTracking()
-                .Where(j => j.Status == JournalStatus.Published)
-                .ToListAsync();
-            return list.OrderByDescending(x => x.CreatedAt).ToList();
+            //避免not supported exception，先將資料撈出，再由CPU排序
+            var list = await _context.JournalEntries
+               .Include(j => j.JournalTags)
+               .Include(j => j.Images)
+               .AsNoTracking()
+               .Where(j => j.Status == JournalStatus.Published)
+               .ToListAsync();
+            return list.OrderByDescending(j => j.CreatedAt).ToList();
         }
 
         public async Task AddAsync(JournalEntry entry)
@@ -85,6 +92,14 @@ namespace MyPortfolio.Repository
         public async Task<JournalTag> GetOrCreateTagAsync(string tagName)
         {
             var trimmedName = tagName.Trim();
+            //1. 先從EF Core的本地追蹤快取中尋找(避免同一次Request內重複new導致衝突)
+            var localTag = _context.JournalTags.Local
+                .FirstOrDefault(t => t.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase));
+            if (localTag != null)
+            {
+                return localTag;
+            }
+            //2. 再從資料庫中尋找
             var existingTag = await _context.JournalTags
                 .FirstOrDefaultAsync(t => t.Name.ToLower() == trimmedName.ToLower());
 
@@ -93,6 +108,7 @@ namespace MyPortfolio.Repository
                 return existingTag;
             }
 
+            //3. 都不存在就建立新標籤
             var newTag = new JournalTag { Id = Guid.NewGuid(), Name = trimmedName };
             await _context.JournalTags.AddAsync(newTag);
             return newTag;

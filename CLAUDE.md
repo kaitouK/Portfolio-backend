@@ -10,6 +10,7 @@ Controller → Service(Interface + 實作) → Repository → Model/Entities
 - Model/Entities/ — EF Core 實體
 - Migrations/ — EF Core 遷移
 - Utility/ — 共用工具
+- MyPortfolio.Tests/ — xUnit 測試專案（已在主 csproj 用 Compile Remove 排除，勿移除該設定）
 - Keys/ — JWT / Data Protection 金鑰（勿 commit，勿讀寫）
 - wwwroot/uploads/journal/ — Journal 上傳圖片
 
@@ -17,6 +18,7 @@ Controller → Service(Interface + 實作) → Repository → Model/Entities
 
 - dotnet run # HTTPS，port 7098
 - dotnet build
+- dotnet test MyPortfolio.Tests # xUnit 測試（Repository 層用 SQLite in-memory）
 - dotnet ef migrations add <Name> # 改 Entity 後
 - dotnet ef database update
 

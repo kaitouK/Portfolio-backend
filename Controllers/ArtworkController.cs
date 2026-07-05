@@ -8,6 +8,7 @@ using System.Diagnostics;
 using MyPortfolio.Utility;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.RateLimiting;
 [ApiController]
 [Route("api/[controller]")]
 public class ArtworksController : BaseApiController
@@ -76,6 +77,7 @@ public class ArtworksController : BaseApiController
     }
     //網址: GET /api/artworks
     [HttpGet]
+    [DisableRateLimiting]//對於公開的 GET 請求，禁用速率限制，避免影響使用者體驗
     public async Task<IActionResult> GetArtworks([FromQuery] int limit = 10, [FromQuery] string? cursor = null)
     {
         try

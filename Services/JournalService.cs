@@ -18,31 +18,13 @@ namespace MyPortfolio.Service
         private readonly IJournalRepository _journalRepository;
         private readonly ILogger<JournalService> _logger;
         private readonly HtmlSanitizer _sanitizer;
-        private readonly BlobContainerClient _containerClient;
-        public JournalService(IJournalRepository repository, ILogger<JournalService> logger, IConfiguration configuration)
+        private readonly IBlobService _blobService;
+        public JournalService(IJournalRepository repository, ILogger<JournalService> logger, IBlobService blobService)
         {
             _logger = logger;
             _journalRepository = repository;
             _sanitizer = new HtmlSanitizer();
-            string? connectionString = configuration.GetSection("BlobStorage")["ConnectionString"];
-            if (string.IsNullOrEmpty(connectionString))
-            {
-                _logger.LogError("Blob Storage 連線字串未正確載入");
-                throw new InvalidOperationException("Blob Storage 連線字串未正確載入");
-            }
-
-            //初始化 Blob 容器用戶端
-            var blobServiceClient = new BlobServiceClient(connectionString);
-            string? BlobContainerName = configuration.GetSection("BlobStorage")["ContainerName"];
-
-            if (string.IsNullOrEmpty(BlobContainerName))
-            {
-                _logger.LogError("Blob Container 名稱 未正確載入");
-                throw new InvalidOperationException("Blob Container 名稱 未正確載入");
-            }
-
-            _containerClient = blobServiceClient.GetBlobContainerClient(BlobContainerName);
-            _containerClient.CreateIfNotExists();
+            _blobService = blobService;
         }
 
         public async Task<ServiceResult<JournalResponseDto>> GetActiveDraftAsync()
@@ -83,7 +65,7 @@ namespace MyPortfolio.Service
             JournalEntry? entry = null;
             if (dto.Id.HasValue && dto.Id != Guid.Empty)
             {
-                entry = await _journalRepository.GetByIdAsync(dto.Id.Value);
+                entry = await _journalRepository.GetByIdAsync(dto.Id.Value, includeImages: true);
             }
 
             if (entry == null)
@@ -102,19 +84,33 @@ namespace MyPortfolio.Service
                 await UpdateEntryProperties(entry, dto);
                 entry.Status = JournalStatus.Published;
             }
+            var orphanImages = FindOrphanImages(entry);
+            foreach (var orphan in orphanImages)
+            {
+                _journalRepository.DeleteImage(orphan);
+            }
             await _journalRepository.SaveChangesAsync();
+            foreach (var orphan in orphanImages)
+            {
+                await _blobService.DeleteAsync(orphan.BlobName);
+            }
+            if (orphanImages.Count > 0)
+            {
+                _logger.LogInformation("發布日誌{JournalTitle}時清理了{Count}張孤兒圖片", entry.Title, orphanImages.Count);
+            }
             return ServiceResult<JournalResponseDto>.Ok(MapToDto(entry));
         }
         public async Task<ServiceResult<JournalImageUploadResponse>> UploadImageAsync(IFormFile file, Guid journalId)
         {
             var journalExists = await _journalRepository.GetByIdAsync(journalId);
             if (journalExists == null) return ServiceResult<JournalImageUploadResponse>.Fail("指定的日誌主體不存在，無法上傳圖片", HttpStatusCode.NotFound);
-
+            //生成唯一guid給圖片賦予檔名
             var fileGuid = Guid.NewGuid();
             var fileName = $"journal/{fileGuid}.webp";
-            var blobClient = _containerClient.GetBlobClient(fileName);
+            //上傳圖片至blob storage
             try
             {
+                string imageUrl;
                 using (var stream = file.OpenReadStream())
                 using (var original = SKBitmap.Decode(stream))
                 {
@@ -123,12 +119,10 @@ namespace MyPortfolio.Service
                     using (var data = image.Encode(SKEncodedImageFormat.Webp, 85))
                     using (var blobUploadStream = data.AsStream())
                     {
-                        var blobHttpHeader = new BlobHttpHeaders { ContentType = "image/webp" };
-                        await blobClient.UploadAsync(blobUploadStream, new BlobUploadOptions { HttpHeaders = blobHttpHeader });
+                        imageUrl = await _blobService.UploadAsync(blobUploadStream, fileName, "image/webp");
                     }
                 }
 
-                var imageUrl = blobClient.Uri.ToString();
                 var imageGuid = Guid.NewGuid();
                 var journalImage = new JournalImage
                 {
@@ -136,7 +130,7 @@ namespace MyPortfolio.Service
                     JournalEntryId = journalId,
                     ImageUrl = imageUrl,
                     BlobName = fileName,
-                    CreatedAt = DateTimeOffset.UtcNow
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 await _journalRepository.AddImageAsync(journalImage);
@@ -146,7 +140,7 @@ namespace MyPortfolio.Service
             catch (Exception ex)
             {
 
-                await SafeDeleteBlobAsync(fileName);
+                await _blobService.DeleteAsync(fileName);
                 _logger.LogError(ex, "上傳日誌圖片失敗: {Message}", ex.Message);
                 return ServiceResult<JournalImageUploadResponse>.Fail($"上傳圖片失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
@@ -162,12 +156,12 @@ namespace MyPortfolio.Service
         {
             var entry = await _journalRepository.GetByIdAsync(id, includeImages: true);
             if (entry == null) return ServiceResult.Fail("找不到指定的日誌", HttpStatusCode.NotFound);
-
+            // 1. 刪除伺服器上的實體圖片
             if (entry.Images != null && entry.Images.Any())
             {
                 foreach (var img in entry.Images)
                 {
-                    await SafeDeleteBlobAsync(img.BlobName);
+                    await _blobService.DeleteAsync(img.BlobName);
                 }
             }
 
@@ -183,10 +177,10 @@ namespace MyPortfolio.Service
             if (image == null)
                 return ServiceResult.Fail("找不到指定的圖片");
 
-            // 2. 刪除伺服器硬碟上的實體檔案
-            await SafeDeleteBlobAsync(image.BlobName);
+            // 1. 刪除伺服器硬碟上的實體檔案
+            await _blobService.DeleteAsync(image.BlobName);
 
-            // 3. 刪除資料庫紀錄
+            // 2. 刪除資料庫紀錄
             _journalRepository.DeleteImage(image);
             await _journalRepository.SaveChangesAsync();
 
@@ -204,7 +198,7 @@ namespace MyPortfolio.Service
                 var tag = await _journalRepository.GetOrCreateTagAsync(tagName);
                 entry.JournalTags.Add(tag);
             }
-            entry.UpdatedAt = DateTimeOffset.UtcNow;
+            entry.UpdatedAt = DateTime.UtcNow;
         }
 
         private static JournalResponseDto MapToDto(JournalEntry entity) => new()
@@ -219,24 +213,15 @@ namespace MyPortfolio.Service
             UpdatedAt = entity.UpdatedAt,
             ImageUrls = entity.Images?.Select(i => i.ImageUrl).ToList() ?? new List<string>()
         };
-        // 輔助方法：安全刪除實體檔案，防止路徑穿越
-        private async Task SafeDeleteBlobAsync(string? blobName)
-        {
-            if (string.IsNullOrEmpty(blobName)) return;
-            try
-            {
-                var blobClient = _containerClient.GetBlobClient(blobName);
-                var response = await blobClient.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots);
-                if (response.Value)
-                {
-                    _logger.LogInformation("已成功清理 Azure Blob 檔案: {BlobName}", blobName);
-                }
 
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "清理 Azure Blob 檔案失敗: {BlobName}", blobName);
-            }
+        private static List<JournalImage> FindOrphanImages(JournalEntry entry)
+        {
+            if (entry.Images == null || entry.Images.Count == 0) return new List<JournalImage>();
+            return entry.Images
+            .Where(img =>
+            !entry.ContentHtml.Contains(img.ImageUrl, StringComparison.OrdinalIgnoreCase) &&
+            !entry.ContentJson.Contains(img.ImageUrl, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         }
     }
 

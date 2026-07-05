@@ -10,6 +10,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 測試專案放在子資料夾，需排除避免被主專案的預設萬用字元編譯 -->
+    <Compile Remove="MyPortfolio.Tests\**" />
+    <Content Remove="MyPortfolio.Tests\**" />
+    <EmbeddedResource Remove="MyPortfolio.Tests\**" />
+    <None Remove="MyPortfolio.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.1" />
     <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
     <PackageReference Include="HtmlSanitizer" Version="9.0.892" />

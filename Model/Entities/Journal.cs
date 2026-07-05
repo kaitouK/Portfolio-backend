@@ -30,8 +30,8 @@ namespace MyPortfolio.Model.Entities
 
         public Guid? UserId { get; set; }//預留多用戶擴充
 
-        public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-        public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         // 導覽屬性：一篇日誌可以包含多張圖片
         public virtual ICollection<JournalImage> Images { get; set; } = new List<JournalImage>();
@@ -72,6 +72,6 @@ namespace MyPortfolio.Model.Entities
         [StringLength(255)]
         public string BlobName { get; set; } = string.Empty; // 儲存後端硬碟的實際路徑 (刪除檔案時需要)
 
-        public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

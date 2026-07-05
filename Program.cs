@@ -30,24 +30,20 @@ string keysFolder = Path.Combine(projectRoot, "Keys");
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("GlobalPolicy", opt =>
+    options.AddPolicy("GlobalPolicy", context =>
     {
-        opt.Window = TimeSpan.FromMinutes(15);  //時間視窗：15分鐘
-        opt.PermitLimit = 100;                  //每個IP 允許 100 次請求
-        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 0;                     //不排隊，超過直接拒絕
+        var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: clientIp,
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(15),//15分鐘一個區間
+                PermitLimit = 100,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0//過量請求直接拒絕
+            });
     });
 });
-Console.WriteLine(
-    $"Environment = {builder.Environment.EnvironmentName}"
-);
-foreach (var item in builder.Configuration.AsEnumerable())
-{
-    if (item.Key.Contains("Admin"))
-    {
-        Console.WriteLine($"{item.Key}={item.Value}");
-    }
-}
 
 builder.Services.AddAuthentication(Options =>
 {
@@ -131,6 +127,8 @@ builder.Services.AddScoped<IImageValidator, ImageValidator>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IJournalRepository, JournalRepository>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddSingleton<IBlobService, BlobService>();
 
 builder.Services.AddCors(options =>
 {
@@ -143,12 +141,21 @@ builder.Services.AddCors(options =>
             Log.Fatal("CORS允許的來源網域未設定或為空");
             throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
         }
-
-        policy.WithOrigins(allowedOrigins
-        ) // React 開發伺服器的預設 URL
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        // 防禦性檢查：如果包含通配符且啟用了 Credentials，則拋出異常防止運行時崩潰
+        if (allowedOrigins.Contains("*"))
+        {
+            Log.Warning("檢測到 CORS 允許來源包含 '*'。為了安全性與相容性，已自動關閉 AllowCredentials。");
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();// 只有在明確指定網域時才允許 Credentials
+        }
     });
 });
 
@@ -239,7 +246,7 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
-app.MapControllers().RequireRateLimiting("GlobalPolicy");
+app.MapControllers().RequireRateLimiting("GlobalPolicy");//所有controller預設使用ratelimiting
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<MyDbContext>();
