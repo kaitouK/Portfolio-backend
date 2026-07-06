@@ -4,6 +4,14 @@ ASP.NET Core Web API backend for a personal portfolio website.
 
 The project adopts a **Frontend/Backend Separation** architecture. It provides RESTful APIs for artwork management, journal management, and administrator authentication. Images are processed automatically before being uploaded to Azure Blob Storage, while authentication is handled using Google OAuth with JWT Cookie authentication.
 
+[中文版 README](./README.zh.md)
+
+## Why did I build this project?
+
+This project combines my passion for drawing with my background in computer science: I wanted to practice .NET development while showcasing the progress I have made over the past few years. My drawing has never improved quickly, but every one of those past artworks is an asset of my growth — and this website itself is a milestone of my growth as a developer.
+
+Through this project I walked through a complete backend development journey: from layered architecture (Controller–Service–Repository), dependency injection, and an EF Core Code-First database, through the ASP.NET Core middleware pipeline, all the way to cloud deployment.
+
 ---
 
 # Tech Stack
@@ -20,7 +28,8 @@ The project adopts a **Frontend/Backend Separation** architecture. It provides R
 | HtmlSanitizer               | HTML Sanitization (XSS Protection)       |
 | Serilog                     | Logging                                  |
 | Scalar (OpenAPI)            | API Documentation                        |
-| Rate Limiting               | Fixed-window request throttling          |
+| Rate Limiting               | Fixed-window throttling (per client IP)  |
+| xUnit                       | Unit / Integration Testing               |
 
 ---
 
@@ -102,14 +111,22 @@ The project adopts a **Frontend/Backend Separation** architecture. It provides R
 ├── Services                       # Business logic
 │   ├── ArtworkService.cs
 │   ├── AuthService.cs
+│   ├── BlobService.cs             # Azure Blob Storage operations (singleton)
+│   ├── CategoryService.cs
 │   ├── JournalService.cs
 │   └── Interfaces
 │
 ├── Utility
 │   └── ImageValidator.cs
 │
+├── MyPortfolio.Tests              # xUnit test project
+│   ├── Repository                 # SQLite in-memory integration tests
+│   ├── Service
+│   ├── Utility
+│   └── TestHelpers
+│
 ├── Keys                           # JWT / Data Protection keys (gitignored)
-├── wwwroot/uploads                # Uploaded artwork & journal images
+├── wwwroot                        # Static files (legacy; uploads now stored in Azure Blob)
 │
 ├── MyPortfolio.db
 └── Program.cs
@@ -150,7 +167,7 @@ Responsibilities
   - Authentication
   - Image processing
   - HTML sanitization
-  - Azure Blob Storage operations
+  - Blob storage operations through the `IBlobService` abstraction (registered as singleton)
 
 - **Repository**
   - Database query abstraction
@@ -165,6 +182,7 @@ Every endpoint returns a unified response format.
 ```json
 {
   "success": true,
+  "statusCode": 200,
   "message": "Operation completed successfully.",
   "data": {}
 }
@@ -175,6 +193,7 @@ Error example
 ```json
 {
   "success": false,
+  "statusCode": 404,
   "message": "Artwork not found.",
   "data": null
 }
@@ -263,12 +282,36 @@ Base Route
 
 ### Relationships
 
-```
-Category
-    │
-    └── 1:N ── Artwork ── N:N ── Tag
-                     │
-                     └── 1:1 ── ExternalStat
+```mermaid
+erDiagram
+    Category ||--o{ Artwork : "1:N"
+    Artwork }o--o{ Tag : "N:N (ArtworkTag)"
+    Artwork ||--o| ExternalStat : "1:1"
+
+    Artwork {
+        int ArtworkId PK
+        int CategoryId FK
+        string Title
+        string PixivId UK "nullable; unique when set"
+        datetime CompletionDate "timeline sort key (indexed)"
+        bool IsGalleryVisible "gallery visibility"
+    }
+    Category {
+        int CategoryId PK
+        string Name
+    }
+    Tag {
+        int TagId PK
+        string TagName
+        int Type "General / Orientation"
+    }
+    ExternalStat {
+        int ArtworkId PK, FK
+        int PixivViews
+        int PixivLikes
+        int PixivBookmarks
+        datetime LastSyncedAt
+    }
 ```
 
 ---
@@ -281,12 +324,29 @@ Category
 
 ### Relationships
 
-```
-JournalEntry
-     │
-     ├── N:N ── JournalTag
-     │
-     └── 1:N ── JournalImage
+```mermaid
+erDiagram
+    JournalEntry }o--o{ JournalTag : "N:N"
+    JournalEntry ||--o{ JournalImage : "1:N (cascade delete)"
+
+    JournalEntry {
+        guid Id PK
+        string Title
+        string ContentJson "restores the TipTap editor"
+        string ContentHtml "rendered on the site (sanitized)"
+        int Status "0 Draft / 1 Published / 2 Archived"
+        datetime UpdatedAt
+    }
+    JournalTag {
+        guid Id PK
+        string Name
+    }
+    JournalImage {
+        guid Id PK
+        guid JournalEntryId FK
+        string ImageUrl
+        string BlobName "used when deleting the blob"
+    }
 ```
 
 ---
@@ -298,11 +358,11 @@ JournalEntry
 - JWT authentication
 - HttpOnly Cookie
 - HTML Sanitizer against XSS attacks
-- Image MIME type validation
+- Three-layer image upload validation: extension allowlist → magic-number content detection → SkiaSharp re-encoding to WebP (strips potentially malicious payloads)
 - Authorization Policy (`AdminOnly`)
 - Centralized exception handling
 - Structured logging with Serilog
-- Fixed-window rate limiting (100 requests / 15 minutes per policy)
+- Fixed-window rate limiting (100 requests / 15 minutes per client IP)
 - Hardened response headers (COOP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, X-Frame-Options)
 - Origin allowlist re-check on authenticated write requests (POST/PUT/DELETE/PATCH)
 - Forwarded headers support behind Azure's reverse proxy
@@ -444,6 +504,33 @@ The API will be available at
 https://localhost:7098
 ```
 
+> Note: migrations are also applied automatically on startup (`Database.Migrate()` in `Program.cs`), so `dotnet ef database update` is optional for local runs.
+
+---
+
+# Testing
+
+Run the test suite:
+
+```bash
+dotnet test MyPortfolio.Tests
+```
+
+Testing strategy:
+
+- **Pure logic** (e.g. `ImageValidator`) is unit-tested directly.
+- **Repository layer** tests run against a real **SQLite in-memory** database instead of mocking `DbContext`, so EF Core query translation is actually verified.
+- Every test gets a fresh, isolated database (xUnit creates a new test-class instance per `[Fact]`).
+
+Current coverage:
+
+- Image magic-number validation (format detection, disguised-file rejection, stream position reset)
+- Cursor-based pagination (ordering, same-date tie-break, paging across pages, visibility filter)
+- Journal tag get-or-create (dedup, case-insensitive matching, trimming)
+- Category service (seed data retrieval, DTO mapping)
+
+The CI pipeline runs the full test suite on every push to `main` before deploying.
+
 ---
 
 # Azure Deployment
@@ -466,6 +553,9 @@ dotnet publish
       │
       ▼
 Azure Login (OIDC)
+      │
+      ▼
+dotnet test
       │
       ▼
 Azure Web App
@@ -515,7 +605,15 @@ Every push to the `main` branch automatically performs the following steps:
 1. Restore NuGet packages
 2. Build and publish the application
 3. Authenticate to Azure using GitHub OIDC
-4. Deploy to Azure Web App (`YourWebAppName`)
+4. Run the test suite
+5. Deploy to Azure Web App (`YourWebAppName`)
+
+---
+
+## Deployment Notes (lessons learned)
+
+- `dotnet publish` **must target `MyPortfolio.csproj` explicitly.** The repo root contains both a `.sln` and a `.csproj`; publishing without specifying the project resolves to the solution and bundles the test project into the same output folder, which prevents App Service (Linux) from detecting the startup assembly.
+- The deploy step uses `clean: true` so stale files from previous deployments are removed from App Service. Keep this in mind if anything is ever stored on the App Service disk (uploads currently live in Azure Blob, so this is safe).
 
 # Future Improvements
 
@@ -523,11 +621,8 @@ Every push to the `main` branch automatically performs the following steps:
 - Tag System
 - Refresh Token authentication
 - Search and filtering APIs
-- Pagination(developed, to be updated)
 - Redis cache
-- Unit Testing
-- Integration Testing
-- CI/CD pipeline
+- Integration Testing (API-level)
 
 ---
 

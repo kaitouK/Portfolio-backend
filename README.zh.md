@@ -3,25 +3,33 @@
 個人作品集網站的 ASP.NET Core Web API 後端。
 
 本專案採用**前後端分離**架構。提供用於作品管理、日誌管理和管理員身分驗證的 RESTful API。圖片在上傳至 Azure Blob Storage 前會進行自動處理，身分驗證則採用 Google OAuth 結合 JWT Cookie 驗證機制。
-為什麼開發本專案？
+
+[English README](./README.md)
+
+## 為什麼開發本專案？
+
+這個專案結合本人的繪畫興趣與資工專長，想在練習.NET程式設計時同時展示過去數年間的進步軌跡，雖然本人的繪畫進步並不迅速，但這些過去的畫作都是我成長的資產，而這個網站本身，也是我作為程式設計人員成長的路標。
+
+透過這份專案，我完整走過了一次後端開發的歷程：從分層架構(Controller-Service-Repository)、依賴注入、EF Core的Code first資料庫以及ASP.NET Core 的中介軟體管線，一路到雲端部署。
 
 ---
 
 # 技術堆疊
 
-| 技術                     | 用途                          |
-| ------------------------ | ----------------------------- |
-| ASP.NET Core Web API     | RESTful API                   |
-| Entity Framework Core 10 | ORM / 程式碼優先 (Code First) |
-| SQLite                   | 開發環境資料庫                |
-| Google OAuth             | 管理員登入                    |
-| JWT + Cookie 驗證        | 身分驗證與授權                |
-| Azure Blob Storage       | 雲端圖片儲存                  |
-| SkiaSharp                | 圖片壓縮 / 縮圖生成           |
-| HtmlSanitizer            | HTML 淨化 (防範 XSS 攻擊)     |
-| Serilog                  | 日誌記錄                      |
-| Scalar (OpenAPI)         | API 文件                      |
-| Rate Limiting            | 固定時間窗口的請求限流        |
+| 技術                     | 用途                            |
+| ------------------------ | ------------------------------- |
+| ASP.NET Core Web API     | RESTful API                     |
+| Entity Framework Core 10 | ORM / 程式碼優先 (Code First)   |
+| SQLite                   | 開發環境資料庫                  |
+| Google OAuth             | 管理員登入                      |
+| JWT + Cookie 驗證        | 身分驗證與授權                  |
+| Azure Blob Storage       | 雲端圖片儲存                    |
+| SkiaSharp                | 圖片壓縮 / 縮圖生成             |
+| HtmlSanitizer            | HTML 淨化 (防範 XSS 攻擊)       |
+| Serilog                  | 日誌記錄                        |
+| Scalar (OpenAPI)         | API 文件                        |
+| Rate Limiting            | 固定時間窗口限流（依客戶端 IP） |
+| xUnit                    | 單元 / 整合測試                 |
 
 ---
 
@@ -103,14 +111,22 @@
 ├── Services                      # 業務邏輯層
 │   ├── ArtworkService.cs
 │   ├── AuthService.cs
+│   ├── BlobService.cs             # Azure Blob Storage 操作（singleton）
+│   ├── CategoryService.cs
 │   ├── JournalService.cs
 │   └── Interfaces
 │
 ├── Utility
 │   └── ImageValidator.cs
 │
+├── MyPortfolio.Tests              # xUnit 測試專案
+│   ├── Repository                 # SQLite in-memory 整合測試
+│   ├── Service
+│   ├── Utility
+│   └── TestHelpers
+│
 ├── Keys                           # JWT / Data Protection 金鑰（已加入 .gitignore）
-├── wwwroot/uploads                # 作品與日誌的上傳圖片
+├── wwwroot                        # 靜態檔案（舊版遺留；上傳圖片現已存放於 Azure Blob）
 │
 ├── MyPortfolio.db
 └── Program.cs
@@ -153,7 +169,7 @@ SQLite
 - 身分驗證
 - 圖片處理
 - HTML 淨化
-- Azure Blob Storage 操作
+- 透過 `IBlobService` 抽象層（註冊為 singleton）操作 Blob 儲存
 
 - **Repository (儲存庫層)**
 - 資料庫查詢抽象化
@@ -168,6 +184,7 @@ SQLite
 ```json
 {
   "success": true,
+  "statusCode": 200,
   "message": "Operation completed successfully.",
   "data": {}
 }
@@ -178,6 +195,7 @@ SQLite
 ```json
 {
   "success": false,
+  "statusCode": 404,
   "message": "Artwork not found.",
   "data": null
 }
@@ -270,13 +288,36 @@ SQLite
 
 ### 關聯
 
-```
-Category
-    │
-    └── 1:N ── Artwork ── N:N ── Tag
-                     │
-                     └── 1:1 ── ExternalStat
+```mermaid
+erDiagram
+    Category ||--o{ Artwork : "1:N"
+    Artwork }o--o{ Tag : "N:N (ArtworkTag)"
+    Artwork ||--o| ExternalStat : "1:1"
 
+    Artwork {
+        int ArtworkId PK
+        int CategoryId FK
+        string Title
+        string PixivId UK "可為空；非空時唯一"
+        datetime CompletionDate "時間軸排序核心（已建索引）"
+        bool IsGalleryVisible "展示牆可見性"
+    }
+    Category {
+        int CategoryId PK
+        string Name
+    }
+    Tag {
+        int TagId PK
+        string TagName
+        int Type "General / Orientation"
+    }
+    ExternalStat {
+        int ArtworkId PK, FK
+        int PixivViews
+        int PixivLikes
+        int PixivBookmarks
+        datetime LastSyncedAt
+    }
 ```
 
 ---
@@ -289,13 +330,29 @@ Category
 
 ### 關聯
 
-```
-JournalEntry
-     │
-     ├── N:N ── JournalTag
-     │
-     └── 1:N ── JournalImage
+```mermaid
+erDiagram
+    JournalEntry }o--o{ JournalTag : "N:N"
+    JournalEntry ||--o{ JournalImage : "1:N（級聯刪除）"
 
+    JournalEntry {
+        guid Id PK
+        string Title
+        string ContentJson "TipTap 編輯器還原用"
+        string ContentHtml "前台渲染用（已淨化）"
+        int Status "0 草稿 / 1 發布 / 2 封存"
+        datetime UpdatedAt
+    }
+    JournalTag {
+        guid Id PK
+        string Name
+    }
+    JournalImage {
+        guid Id PK
+        guid JournalEntryId FK
+        string ImageUrl
+        string BlobName "刪除 Blob 檔案時使用"
+    }
 ```
 
 ---
@@ -307,11 +364,11 @@ JournalEntry
 - JWT 身分驗證
 - HttpOnly Cookie
 - 使用 HTML Sanitizer 防範 XSS 攻擊
-- 圖片 MIME 類型驗證
+- 圖片上傳三層驗證：副檔名白名單 → magic number 內容檢測 → SkiaSharp 重新編碼為 WebP（去除潛在惡意 payload）
 - 授權原則 (`AdminOnly`)
 - 集中式例外狀況處理
 - 使用 Serilog 進行結構化日誌記錄
-- 固定時間窗口限流（每個政策 15 分鐘內最多 100 次請求）
+- 固定時間窗口限流（每個客戶端 IP 15 分鐘內最多 100 次請求）
 - 強化回應標頭（COOP、X-Content-Type-Options、Referrer-Policy、Permissions-Policy、X-Frame-Options）
 - 已登入使用者對 POST/PUT/DELETE/PATCH 請求的 Origin 白名單二次驗證
 - 支援 Azure 反向代理的 Forwarded Headers
@@ -425,7 +482,6 @@ Azure Blob Storage
 | `AllowedOrigins`                      | 允許的 CORS 來源陣列；未設定時應用程式啟動會直接拋出例外 |
 | `Authentication:Google:ClientId`      | 用於驗證 Google ID Token Audience 的 OAuth Client ID     |
 | `Admin:Email`                         | 管理員 Google 帳號白名單                                 |
-| `Admin:Email`                         | 管理員 Google 帳號白名單                                 |
 
 ---
 
@@ -459,6 +515,33 @@ https://localhost:7098
 
 ```
 
+> 備註：應用程式啟動時也會自動套用遷移（`Program.cs` 中的 `Database.Migrate()`），因此本地執行時 `dotnet ef database update` 並非必要步驟。
+
+---
+
+# 測試
+
+執行測試套件：
+
+```bash
+dotnet test MyPortfolio.Tests
+```
+
+測試策略：
+
+- **純邏輯**（如 `ImageValidator`）直接進行單元測試。
+- **Repository 層**測試對著真實的 **SQLite in-memory** 資料庫執行，而非 mock `DbContext`——這樣才能真正驗證 EF Core 的查詢翻譯。
+- 每個測試都擁有獨立的資料庫（xUnit 對每個 `[Fact]` 建立全新的測試類別實例），確保測試互不干擾。
+
+目前涵蓋範圍：
+
+- 圖片 magic number 驗證（格式判定、偽裝檔攔截、串流位置重置）
+- Cursor-based 分頁（排序、同日期 tie-break、跨頁游標、可見性過濾）
+- 日誌標籤 get-or-create（去重、大小寫不敏感比對、trim）
+- 分類服務（種子資料讀取、DTO 映射）
+
+CI 流程會在每次推送至 `main` 部署前自動執行完整測試套件。
+
 ---
 
 # Azure 部署
@@ -481,6 +564,9 @@ dotnet publish
       │
       ▼
 Azure 登入 (OIDC)
+      │
+      ▼
+dotnet test
       │
       ▼
 Azure Web App (應用程式服務)
@@ -531,7 +617,15 @@ Azure Web App (應用程式服務)
 1. 還原 NuGet 套件
 2. 建置並發布應用程式
 3. 使用 GitHub OIDC 驗證 Azure 身分
-4. 部署至 Azure Web App (`YourWebAppName`)
+4. 執行測試套件
+5. 部署至 Azure Web App (`YourWebAppName`)
+
+---
+
+## 部署備註（踩坑紀錄）
+
+- `dotnet publish` **必須明確指定 `MyPortfolio.csproj`**。因為 repo 根目錄同時存在 `.sln` 與 `.csproj`，未指定專案時會解析到 solution，把測試專案一併發佈到同一個輸出資料夾，導致 App Service（Linux）無法辨識啟動組件。
+- 部署步驟開啟了 `clean: true`，確保 App Service 上不殘留舊部署的檔案。若未來有任何資料存放在 App Service 磁碟上須特別留意（目前上傳圖片皆存於 Azure Blob，因此是安全的）。
 
 ---
 
@@ -541,11 +635,8 @@ Azure Web App (應用程式服務)
 - 標籤系統
 - Refresh Token 身分驗證
 - 搜尋與過濾 API
-- 分頁功能 (開發完成，待補)
 - Redis 快取
-- 單元測試
-- 整合測試
-- CI/CD 持續整合與部署管線
+- 整合測試（API 層級）
 
 ---
 
