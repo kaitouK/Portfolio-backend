@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyPortfolio.DTOs;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using MyPortfolio.Model.Entities;
 using MyPortfolio.Service.Interface;
 using SkiaSharp;

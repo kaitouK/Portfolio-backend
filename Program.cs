@@ -3,7 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using MyPortfolio.Model;
+using MyPortfolio.Data;
 using MyPortfolio.Service;
 using MyPortfolio.Service.Interface;
 using MyPortfolio.Repository;

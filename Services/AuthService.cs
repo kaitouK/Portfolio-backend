@@ -3,7 +3,7 @@ using MyPortfolio.DTOs;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using System.Security.Claims;
 namespace MyPortfolio.Service
 {

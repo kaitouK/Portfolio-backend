@@ -2,7 +2,7 @@ using System.Reflection.Metadata;
 using Microsoft.EntityFrameworkCore;
 using MyPortfolio.Model.Entities;
 
-namespace MyPortfolio.Model
+namespace MyPortfolio.Data
 {
     public class MyDbContext : DbContext
     {

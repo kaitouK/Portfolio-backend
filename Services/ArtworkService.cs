@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MyPortfolio.Service.Interface;
 using MyPortfolio.DTOs;
 using MyPortfolio.Model.Entities;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using SkiaSharp;
 using MyPortfolio.Repository;
 using Microsoft.Extensions.Logging;
@@ -20,7 +20,6 @@ namespace MyPortfolio.Service
     {
         private readonly IArtworkRepository _artworkRepository;
         // 定義一個儲存上傳檔案的路徑，這裡使用 wwwroot/uploads 資料夾
-        private readonly BlobContainerClient _containerClient;
         private readonly ILogger<ArtworkService> _logger;
         private readonly IBlobService _blobService;
         public ArtworkService(IArtworkRepository artworkRepository, ILogger<ArtworkService> logger, IBlobService blobService)
@@ -179,9 +178,19 @@ namespace MyPortfolio.Service
                 _artworkRepository.Remove(artwork);
                 await _artworkRepository.SaveChangesAsync();
             });
-                await _blobService.DeleteAsync(fileName);
-                await _blobService.DeleteAsync(thumbName);
-                return ServiceResult.Ok("作品刪除成功");
+                try
+                {
+                    if (!string.IsNullOrEmpty(fileName))
+                        await _blobService.DeleteAsync(fileName);
+                    if (!string.IsNullOrEmpty(thumbName))
+                        await _blobService.DeleteAsync(thumbName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "刪除作品 {ArtworkId} 的雲端檔案失敗: {Message}", id, ex.Message);
+                    // 這裡不回傳錯誤給前端，因為資料庫已經刪除了，雲端檔案刪除失敗不應阻止整個操作
+                }
+                return ServiceResult.Ok("作品資料刪除成功");
             }
             catch (Exception ex)
             {

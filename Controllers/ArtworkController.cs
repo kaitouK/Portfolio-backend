@@ -1,6 +1,6 @@
 using MyPortfolio.DTOs;
 using Microsoft.AspNetCore.Mvc;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using MyPortfolio.Service.Interface;
 using System.Net;
 using MyPortfolio.Controller;

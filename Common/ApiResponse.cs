@@ -1,4 +1,4 @@
-namespace MyPortfolio.Model
+namespace MyPortfolio.Common
 {
     /// <summary>
     /// 基本的 API 回應格式(不包含資料）

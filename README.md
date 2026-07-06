@@ -97,12 +97,21 @@ Through this project I walked through a complete backend development journey: fr
 │
 ├── Migrations                    # Entity Framework Core Migrations
 │
+├── Common                        # Cross-layer shared types
+│   ├── ApiResponse.cs            # HTTP response envelope
+│   └── ServiceResult.cs          # Service-layer result wrapper
+│
+├── Data
+│   └── DbContext.cs              # EF Core DbContext (data access infrastructure)
+│
+├── DTOs                          # API contracts, split per module
+│   ├── ArtworkDtos.cs
+│   ├── AuthDtos.cs
+│   ├── CategoryDtos.cs
+│   └── JournalDtos.cs
+│
 ├── Model
-│   ├── ApiResponse.cs
-│   ├── ServiceResult.cs
-│   ├── DTOs.cs
-│   ├── DbContext.cs
-│   └── Entities
+│   └── Entities                  # EF Core entities (domain model)
 │
 ├── Repository                    # Database access layer
 │   ├── ArtworkRepository.cs

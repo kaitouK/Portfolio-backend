@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using MyPortfolio.Model;
+using MyPortfolio.Data;
 
 namespace MyPortfolio.Tests.TestHelpers
 {

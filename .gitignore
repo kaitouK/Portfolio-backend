@@ -436,4 +436,5 @@ appsettings.Production.json
 #靜態物件(資料庫/圖片)
 *.db
 *.db.*
+*.db-*
 wwwroot/*

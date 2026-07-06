@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using MyPortfolio.DTOs;
 using MyPortfolio.Controller;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using MyPortfolio.Service.Interface;
 using Microsoft.EntityFrameworkCore;
 [ApiController]

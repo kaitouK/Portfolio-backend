@@ -97,12 +97,21 @@
 │
 ├── Migrations                    # Entity Framework Core 遷移紀錄
 │
+├── Common                        # 跨層共用型別
+│   ├── ApiResponse.cs            # HTTP 回應信封
+│   └── ServiceResult.cs          # Service 層回傳容器
+│
+├── Data
+│   └── DbContext.cs              # EF Core DbContext（資料存取基礎設施）
+│
+├── DTOs                          # API 契約，按模組拆檔
+│   ├── ArtworkDtos.cs
+│   ├── AuthDtos.cs
+│   ├── CategoryDtos.cs
+│   └── JournalDtos.cs
+│
 ├── Model
-│   ├── ApiResponse.cs
-│   ├── ServiceResult.cs
-│   ├── DTOs.cs
-│   ├── DbContext.cs
-│   └── Entities
+│   └── Entities                  # EF Core 實體（領域模型）
 │
 ├── Repository                    # 資料庫存取層
 │   ├── ArtworkRepository.cs

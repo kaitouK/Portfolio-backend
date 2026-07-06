@@ -8,11 +8,14 @@ Controller → Service(Interface + 實作) → Repository → Model/Entities
 - Service/ + Service/Interface/ — 商業邏輯
 - Repository/ — 資料存取（Repository pattern）
 - Model/Entities/ — EF Core 實體
+- Data/ — MyDbContext（資料存取基礎設施）
+- DTOs/ — API 輸入/輸出契約，按模組拆檔（ArtworkDtos、JournalDtos…）
+- Common/ — 跨層共用型別（ApiResponse、ServiceResult）
 - Migrations/ — EF Core 遷移
 - Utility/ — 共用工具
 - MyPortfolio.Tests/ — xUnit 測試專案（已在主 csproj 用 Compile Remove 排除，勿移除該設定）
 - Keys/ — JWT / Data Protection 金鑰（勿 commit，勿讀寫）
-- wwwroot/uploads/journal/ — Journal 上傳圖片
+- wwwroot/ — 靜態檔案（舊版遺留；上傳圖片現已存放於 Azure Blob）
 
 ## 指令
 

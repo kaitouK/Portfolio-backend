@@ -1,5 +1,5 @@
 using MyPortfolio.DTOs;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 namespace MyPortfolio.Service.Interface
 {
     public interface IArtworkService

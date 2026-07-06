@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using MyPortfolio.Model;
+using MyPortfolio.Data;
 using MyPortfolio.Model.Entities;
 using MyPortfolio.DTOs;
 namespace MyPortfolio.Repository

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MyPortfolio.DTOs;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
+using MyPortfolio.Data;
 using MyPortfolio.Service.Interface;
 
 namespace MyPortfolio.Service

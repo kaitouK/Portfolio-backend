@@ -1,5 +1,5 @@
 using System.Net;
-namespace MyPortfolio.Model
+namespace MyPortfolio.Common
 {
     /// <summary>
     /// 服務層的結果封裝類別，用於統一表示服務操作的成功與否、相關訊息以及狀態碼。這個類別可以幫助我們在控制器中更方便地處理服務層的回應，並根據結果來決定回傳給客戶端的 HTTP 狀態碼和訊息。

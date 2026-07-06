@@ -8,7 +8,7 @@ using MyPortfolio.Service.Interface;
 using MyPortfolio.DTOs;
 using MyPortfolio.Service;
 using System.Diagnostics;
-using MyPortfolio.Model;
+using MyPortfolio.Common;
 using System.Reflection.Metadata;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
