@@ -78,14 +78,6 @@ builder.Services.AddAuthentication(Options =>
     // 攔截請求，從 Cookie 中提取 JWT Token
     options.Events = new JwtBearerEvents
     {
-        OnMessageReceived = context =>
-        {
-            if (context.Request.Cookies.ContainsKey("AppAuth"))
-            {
-                context.Token = context.Request.Cookies["AppAuth"];
-            }
-            return Task.CompletedTask;
-        },
         OnAuthenticationFailed = context =>
         {
             // 當 JWT 驗證失敗時，會印出具體原因（例如：金鑰不匹配、Token已過期、Issuer不對）
@@ -134,6 +126,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IJournalRepository, JournalRepository>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddSingleton<IBlobService, BlobService>();
 
 builder.Services.AddCors(options =>
@@ -178,21 +171,19 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseForwardedHeaders(forwardedHeadersOptions);
 }
-
-app.UseDefaultFiles(); // 允許服務預設的靜態檔案（如 wwwroot 資料夾中的檔案）
-app.UseStaticFiles(); // 允許服務靜態檔案（如上傳的圖片）
 if (!app.Environment.IsDevelopment())
 {
+    app.UseHsts();
     app.UseHttpsRedirection();
 }
+app.UseDefaultFiles(); // 允許服務預設的靜態檔案（如 wwwroot 資料夾中的檔案）
 
-app.UseRouting();//先路由
-app.UseSerilogRequestLogging();//濃縮ASP.NET Cor Log日誌
-
-app.UseCors("AllowReactApp");//再使用 CORS 中介軟體，確保它在路由之後，這樣才能正確處理跨域請求
-
-app.UseRateLimiter();//啟用rate limiter
-app.UseAuthentication(); // 
+var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+if (allowedOrigins == null || allowedOrigins.Length == 0)
+{
+    Log.Fatal("CORS允許的來源網域未設定或為空");
+    throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
+}
 
 app.Use(async (context, next) =>
 {
@@ -206,32 +197,19 @@ app.Use(async (context, next) =>
 
     context.Response.Headers["Permissions-Policy"] =
         "camera=(), microphone=(), geolocation=()";
+    if (!app.Environment.IsDevelopment())
+        context.Response.Headers.Append("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 
     context.Response.Headers["X-Frame-Options"] = "DENY";
 
-    if (context.Request.Path.StartsWithSegments("/api/auth"))
+    // 不做任何路徑豁免——沒帶 cookie 的請求（如 google-login、curl 測試）不構成 CSRF，自然放行。
+    var method = context.Request.Method;
+    bool isUnsafeMethod = HttpMethods.IsPost(method) || HttpMethods.IsPut(method)
+                       || HttpMethods.IsDelete(method) || HttpMethods.IsPatch(method);
+    bool carriesAuthCookie = context.Request.Cookies.ContainsKey("__Secure-AppRefresh");
+    if (isUnsafeMethod && carriesAuthCookie)
     {
-        await next();
-        return;
-    }
-    if (context.User.Identity?.IsAuthenticated == true &&
-      (HttpMethods.IsPost(context.Request.Method) ||
-       HttpMethods.IsPut(context.Request.Method) ||
-       HttpMethods.IsDelete(context.Request.Method) ||
-       HttpMethods.IsPatch(context.Request.Method)))
-    {
-
         var origin = context.Request.Headers.Origin.ToString();
-
-        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
-        {
-            if (allowedOrigins == null || allowedOrigins.Length == 0)
-            {
-                Log.Fatal("CORS允許的來源網域未設定或為空");
-                throw new InvalidOperationException("CORS AllowedOrigins config is missing or empty.");
-            }
-        }
-
         if (string.IsNullOrEmpty(origin) ||
             !allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
         {
@@ -243,6 +221,18 @@ app.Use(async (context, next) =>
 
     await next();
 });
+app.UseStaticFiles(); // 允許服務靜態檔案（如上傳的圖片）
+
+
+app.UseRouting();//先路由
+app.UseSerilogRequestLogging();//濃縮ASP.NET Cor Log日誌
+
+app.UseCors("AllowReactApp");//再使用 CORS 中介軟體，確保它在路由之後，這樣才能正確處理跨域請求
+
+app.UseRateLimiter();//啟用rate limiter
+app.UseAuthentication(); // 
+
+
 app.UseAuthorization(); // 最後授權
 
 // Configure the HTTP request pipeline.

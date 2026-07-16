@@ -17,6 +17,7 @@ namespace MyPortfolio.Data
         public DbSet<JournalEntry> JournalEntries { get; set; }
         public DbSet<JournalImage> JournalImages { get; set; }
         public DbSet<JournalTag> JournalTags { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -103,6 +104,12 @@ namespace MyPortfolio.Data
             modelBuilder.Entity<JournalEntry>().ToTable("JournalEntries");
             modelBuilder.Entity<JournalImage>().ToTable("JournalImages");
             modelBuilder.Entity<JournalTag>().ToTable("JournalTags");
+            modelBuilder.Entity<RefreshToken>(entity =>
+            {
+                entity.HasKey(rt => rt.Id);
+                entity.HasIndex(rt => rt.TokenHash).IsUnique(); // 每次都用雜湊查
+                entity.HasIndex(rt => rt.FamilyId);             // 撤銷家族用
+            });
 
         }
     }

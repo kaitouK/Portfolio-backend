@@ -8,6 +8,7 @@ namespace MyPortfolio.Repository
     {
         public static IQueryable<ArtworkDto> ProjectToDto(this IQueryable<Artwork> query)
         {
+            // 只SELECT需要映射的欄位，沒有寫入的不會被查詢
             return query.Select(a => new ArtworkDto
             {
                 ArtworkId = a.ArtworkId,

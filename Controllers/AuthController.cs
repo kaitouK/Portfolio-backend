@@ -24,6 +24,8 @@ namespace MyPortfolio.Controller
         private readonly IConfiguration _configuration;
         private readonly IAuthService _authService;
         private readonly ILogger<AuthController> _logger;
+        private const string AccessCookieName = "__Host-AppAuth";
+        private const string RefreshCookieName = "__Secure-AppRefresh";
         public AuthController(IConfiguration configuration, IAuthService authService, ILogger<AuthController> logger)
         {
             _configuration = configuration;
@@ -67,19 +69,20 @@ namespace MyPortfolio.Controller
                 }
 
                 // 通過白名單！呼叫 Service 產生專屬的 JWT
-                var jwtToken = _authService.GenerateToken(payload.Email);
+                var accessToken = _authService.GenerateAccessToken(payload.Email);
 
-                // 將 JWT 寫入瀏覽器的 HttpOnly Cookie 中 30分過期
-                Response.Cookies.Append("AppAuth", jwtToken, GetCookieOptions(DateTime.UtcNow.AddMinutes(30)));
+                var (refreshPlain, refreshRecord) = await _authService.IssueRefreshTokenAsync(payload.Email);
 
                 var authStatus = new AuthStatusDto
                 {
                     IsAuthenticated = true,
                     Email = payload.Email,
                     DisplayName = payload.Name,
-                    Role = "admin"
+                    Role = "admin",
+                    AccessToken = accessToken //改帶入accesstoken進 authstatusDto
                 };
-                _logger.LogInformation("Google 登入成功並已簽發 JWT Cookie。用戶資訊 -> Email: {Email}, Name: {Name},Location: {Location}", payload.Email, payload.Name, payload.Locale);
+                _logger.LogInformation("Google 登入成功並已簽發 JWT。用戶資訊 -> Email: {Email}, Name: {Name},Location: {Location}", payload.Email, payload.Name, payload.Locale);
+                SetAuthCookies(refreshPlain, refreshRecord.ExpiresAtUtc);
                 return ProcessApiResponse(ApiResponse<object>.Ok(authStatus, "登入成功"));
             }
             catch (InvalidJwtException)
@@ -87,42 +90,14 @@ namespace MyPortfolio.Controller
                 return ProcessApiResponse(ApiResponse.Fail("無效的 Google 憑證。", 400));
             }
         }
-        [HttpGet("status")]
-        public async Task<IActionResult> Status()
-        {
-            var authDto = new AuthStatusDto { IsAuthenticated = false };
-
-            if (User.Identity?.IsAuthenticated == true)
-            {
-                var email = User.FindFirstValue(ClaimTypes.Email);
-                if (string.IsNullOrEmpty(email))
-                    return ProcessApiResponse(ApiResponse.Fail("找不到使用者Email", 400));
-                authDto.IsAuthenticated = true;
-                authDto.Email = email;
-                authDto.DisplayName = User.FindFirstValue(ClaimTypes.Name);
-                authDto.Role = User.IsInRole("Admin") ? "admin" : "user"; // 直接從 JWT 內建的 Role 判斷
-
-
-                RenewSession(email);
-            }
-            return ProcessApiResponse(ApiResponse<object>.Ok(authDto));
-
-        }
-        [AllowAnonymous]
-        [HttpPost("logout")]
-        public async Task<IActionResult> Logout()
-        {
-            Response.Cookies.Delete("AppAuth", GetCookieOptions());
-            return ProcessApiResponse(ApiResponse.Ok("已登出"));
-        }
-        private CookieOptions GetCookieOptions(DateTime? expires = null)
+        private CookieOptions GetCookieOptions(DateTime? expires = null, string path = "/")
         {
             var options = new CookieOptions
             {
                 HttpOnly = true,
                 Secure = true,
                 SameSite = SameSiteMode.None, // 若為跨域開發環境，需保持 None；若同網域建議改為 Lax
-                Path = "/",
+                Path = path,
                 IsEssential = true
             };
             if (expires.HasValue)
@@ -131,11 +106,53 @@ namespace MyPortfolio.Controller
             }
             return options;
         }
-        //自動續期
-        private void RenewSession(string email)
+        private void SetAuthCookies(string refreshPlain, DateTime refreshExpiresAtUtc)
         {
-            var jwtToken = _authService.GenerateToken(email);
-            Response.Cookies.Append("AppAuth", jwtToken, GetCookieOptions(DateTime.UtcNow.AddMinutes(30)));
+            Response.Cookies.Append(RefreshCookieName, refreshPlain,
+                GetCookieOptions(refreshExpiresAtUtc, "/api/auth")); // 只在 auth 端點出現
+        }
+
+        private void DeleteAuthCookies()
+        {
+            Response.Cookies.Delete(RefreshCookieName, GetCookieOptions(path: "/api/auth"));
+        }
+        [AllowAnonymous] // access token 過期時也要能打，靠 refresh cookie 本身驗證
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh()
+        {
+            var presented = Request.Cookies[RefreshCookieName];
+            if (string.IsNullOrEmpty(presented))
+                return ProcessApiResponse(ApiResponse.Fail("未提供憑證", 401));
+
+            var result = await _authService.RotateRefreshTokenAsync(presented);
+            if (!result.Success)
+            {
+                DeleteAuthCookies(); // 無效/過期/重用 → 清乾淨，強制重新登入
+                return ProcessApiResponse(ApiResponse.Fail("憑證已失效，請重新登入", 401));
+            }
+            var authStatus = new AuthStatusDto
+            {
+                IsAuthenticated = true,
+                Email = result.Email,
+                Role = "admin",
+                AccessToken = result.NewAccessToken
+
+            };
+
+            SetAuthCookies(result.NewRefreshPlainToken!, result.RefreshExpiresAtUtc);
+            return ProcessApiResponse(ApiResponse<AuthStatusDto>.Ok(authStatus, "已更新憑證"));
+        }
+
+        [AllowAnonymous]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            var presented = Request.Cookies[RefreshCookieName];
+            if (!string.IsNullOrEmpty(presented))
+                await _authService.RevokeByPlainTokenAsync(presented); // 登出 = 撤銷整個家族
+
+            DeleteAuthCookies();
+            return ProcessApiResponse(ApiResponse.Ok("已登出"));
         }
 
     }
