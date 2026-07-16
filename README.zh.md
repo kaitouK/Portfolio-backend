@@ -2,7 +2,7 @@
 
 個人作品集網站的 ASP.NET Core Web API 後端。
 
-本專案採用**前後端分離**架構。提供用於作品管理、日誌管理和管理員身分驗證的 RESTful API。圖片在上傳至 Azure Blob Storage 前會進行自動處理，身分驗證則採用 Google OAuth 結合 JWT Cookie 驗證機制。
+本專案採用**前後端分離**架構。提供用於作品管理、日誌管理和管理員身分驗證的 RESTful API。圖片在上傳至 Azure Blob Storage 前會進行自動處理，身分驗證則採用 Google OAuth，核發短效 JWT Access Token 與可輪轉的 Refresh Token。
 
 [English README](./README.md)
 
@@ -22,7 +22,7 @@
 | Entity Framework Core 10 | ORM / 程式碼優先 (Code First)   |
 | SQLite                   | 開發環境資料庫                  |
 | Google OAuth             | 管理員登入                      |
-| JWT + Cookie 驗證        | 身分驗證與授權                  |
+| JWT Access + Refresh Token | 身分驗證與授權（輪轉＋重用偵測） |
 | Azure Blob Storage       | 雲端圖片儲存                    |
 | SkiaSharp                | 圖片壓縮 / 縮圖生成             |
 | HtmlSanitizer            | HTML 淨化 (防範 XSS 攻擊)       |
@@ -39,12 +39,12 @@
 
 - Google OAuth 管理員登入
 - Google 帳號白名單驗證
-- 登入成功後生成 JWT
-- 將 JWT 儲存於 `AppAuth` HttpOnly Cookie 中
-- 管理員 API 的 Cookie 驗證
+- 登入後核發短效 JWT Access Token（15 分鐘），以 `Authorization: Bearer` 標頭傳送
+- 不透明 Refresh Token（14 天絕對過期）——資料庫僅儲存其 SHA-256 雜湊
+- Refresh Token 存放於 `__Secure-AppRefresh` HttpOnly Cookie，Path 限定 `/api/auth`
+- 每次更新憑證時輪轉 Refresh Token；偵測到重用時撤銷整個 Token 家族
 - 自動驗證登入狀態
-- 過期時間內自動展延 Cookie
-- 安全登出
+- 安全登出（撤銷 Refresh Token 家族）
 
 ---
 
@@ -99,6 +99,7 @@
 │
 ├── Common                        # 跨層共用型別
 │   ├── ApiResponse.cs            # HTTP 回應信封
+│   ├── RefreshResult.cs          # Refresh Token 輪轉結果
 │   └── ServiceResult.cs          # Service 層回傳容器
 │
 ├── Data
@@ -115,7 +116,8 @@
 │
 ├── Repository                    # 資料庫存取層
 │   ├── ArtworkRepository.cs
-│   └── JournalRepository.cs
+│   ├── JournalRepository.cs
+│   └── RefreshTokenRepository.cs
 │
 ├── Services                      # 業務邏輯層
 │   ├── ArtworkService.cs
@@ -223,11 +225,12 @@ SQLite
 
 ```
 
-| 方法 | 端點            | 權限           | 描述                                         |
-| ---- | --------------- | -------------- | -------------------------------------------- |
-| POST | `/google-login` | 公開           | 驗證 Google ID Token 並核發 `AppAuth` Cookie |
-| GET  | `/status`       | 需 Cookie 驗證 | 檢查登入狀態並自動展延 Cookie                |
-| POST | `/logout`       | 公開           | 移除身分驗證 Cookie                          |
+| 方法 | 端點            | 權限              | 描述                                                    |
+| ---- | --------------- | ----------------- | ------------------------------------------------------- |
+| POST | `/google-login` | 公開              | 驗證 Google ID Token，回傳 Access Token 並設定 Refresh Cookie |
+| GET  | `/status`       | 需 Access Token   | 檢查登入狀態（純查詢，無副作用）                        |
+| POST | `/refresh`      | 需 Refresh Cookie | 輪轉 Refresh Token 並核發新的 Access Token              |
+| POST | `/logout`       | 公開              | 撤銷 Refresh Token 家族並移除 Cookie                    |
 
 ---
 
@@ -366,20 +369,44 @@ erDiagram
 
 ---
 
+## 認證模組
+
+- RefreshToken (更新憑證)
+
+### 關聯
+
+```mermaid
+erDiagram
+    RefreshToken {
+        guid Id PK
+        string TokenHash UK "SHA-256 雜湊；不儲存明文"
+        string Email
+        guid FamilyId "一次登入 = 一個家族（已建索引）"
+        datetime CreatedAtUtc
+        datetime ExpiresAtUtc "絕對過期；輪轉時繼承不延長"
+        datetime RevokedAtUtc "有效期間為 null"
+    }
+```
+
+輪轉流程：每次 `POST /auth/refresh` 會撤銷當前 Token 並核發新的一顆，繼承相同的 `FamilyId` 與 `ExpiresAtUtc`。若已撤銷的 Token 再次被使用（可能遭竊或重放），整個家族會被撤銷並強制重新登入。
+
+---
+
 # 安全性
 
 - Google OAuth 身分驗證
 - Google 帳號白名單驗證
-- JWT 身分驗證
-- HttpOnly Cookie
+- 短效 JWT Access Token（15 分鐘），走 `Authorization: Bearer` 標頭——不存放於 Cookie 或 localStorage
+- 可輪轉的 Refresh Token，具重用偵測（Token 家族撤銷）；伺服器端僅儲存 SHA-256 雜湊
+- `__Secure-AppRefresh` HttpOnly Cookie，Path 限定 `/api/auth`
 - 使用 HTML Sanitizer 防範 XSS 攻擊
 - 圖片上傳三層驗證：副檔名白名單 → magic number 內容檢測 → SkiaSharp 重新編碼為 WebP（去除潛在惡意 payload）
 - 授權原則 (`AdminOnly`)
 - 集中式例外狀況處理
 - 使用 Serilog 進行結構化日誌記錄
 - 固定時間窗口限流（每個客戶端 IP 15 分鐘內最多 100 次請求）
-- 強化回應標頭（COOP、X-Content-Type-Options、Referrer-Policy、Permissions-Policy、X-Frame-Options）
-- 已登入使用者對 POST/PUT/DELETE/PATCH 請求的 Origin 白名單二次驗證
+- 強化回應標頭（CSP、HSTS、COOP、X-Content-Type-Options、Referrer-Policy、Permissions-Policy、X-Frame-Options）
+- 對帶有認證 Cookie 的 POST/PUT/DELETE/PATCH 請求進行 Origin 白名單二次驗證
 - 支援 Azure 反向代理的 Forwarded Headers
 
 ---
@@ -642,7 +669,6 @@ Azure Web App (應用程式服務)
 
 - Pixiv 狀態追蹤
 - 標籤系統
-- Refresh Token 身分驗證
 - 搜尋與過濾 API
 - Redis 快取
 - 整合測試（API 層級）

@@ -2,7 +2,7 @@
 
 ASP.NET Core Web API backend for a personal portfolio website.
 
-The project adopts a **Frontend/Backend Separation** architecture. It provides RESTful APIs for artwork management, journal management, and administrator authentication. Images are processed automatically before being uploaded to Azure Blob Storage, while authentication is handled using Google OAuth with JWT Cookie authentication.
+The project adopts a **Frontend/Backend Separation** architecture. It provides RESTful APIs for artwork management, journal management, and administrator authentication. Images are processed automatically before being uploaded to Azure Blob Storage, while authentication is handled using Google OAuth with short-lived JWT access tokens and rotating refresh tokens.
 
 [中文版 README](./README.zh.md)
 
@@ -22,7 +22,7 @@ Through this project I walked through a complete backend development journey: fr
 | Entity Framework Core 10    | ORM / Code First                         |
 | SQLite                      | Development Database                     |
 | Google OAuth                | Administrator Login                      |
-| JWT + Cookie Authentication | Authentication & Authorization           |
+| JWT Access + Refresh Token  | Authentication & Authorization (rotation + reuse detection) |
 | Azure Blob Storage          | Cloud Image Storage                      |
 | SkiaSharp                   | Image Compression / Thumbnail Generation |
 | HtmlSanitizer               | HTML Sanitization (XSS Protection)       |
@@ -39,12 +39,12 @@ Through this project I walked through a complete backend development journey: fr
 
 - Google OAuth administrator login
 - Google account whitelist validation
-- JWT generation after successful login
-- Store JWT inside `AppAuth` HttpOnly Cookie
-- Cookie authentication for administrator APIs
+- Short-lived JWT access token (15 minutes) issued after login, sent via `Authorization: Bearer` header
+- Opaque refresh token (14-day absolute expiry) — only its SHA-256 hash is stored in the database
+- Refresh token delivered as `__Secure-AppRefresh` HttpOnly cookie scoped to `/api/auth`
+- Refresh token rotation on every renewal; reuse detection revokes the whole token family
 - Automatic login status validation
-- Cookie renewal within expiration period
-- Secure logout
+- Secure logout (revokes the refresh token family)
 
 ---
 
@@ -99,6 +99,7 @@ Through this project I walked through a complete backend development journey: fr
 │
 ├── Common                        # Cross-layer shared types
 │   ├── ApiResponse.cs            # HTTP response envelope
+│   ├── RefreshResult.cs          # Refresh-token rotation result
 │   └── ServiceResult.cs          # Service-layer result wrapper
 │
 ├── Data
@@ -115,7 +116,8 @@ Through this project I walked through a complete backend development journey: fr
 │
 ├── Repository                    # Database access layer
 │   ├── ArtworkRepository.cs
-│   └── JournalRepository.cs
+│   ├── JournalRepository.cs
+│   └── RefreshTokenRepository.cs
 │
 ├── Services                       # Business logic
 │   ├── ArtworkService.cs
@@ -220,11 +222,12 @@ Base Route
 /api/auth
 ```
 
-| Method | Endpoint        | Permission      | Description                                       |
-| ------ | --------------- | --------------- | ------------------------------------------------- |
-| POST   | `/google-login` | Public          | Validate Google ID Token and issue AppAuth Cookie |
-| GET    | `/status`       | Cookie Required | Check login status and auto renew cookie          |
-| POST   | `/logout`       | Public          | Remove authentication cookie                      |
+| Method | Endpoint        | Permission     | Description                                                          |
+| ------ | --------------- | -------------- | -------------------------------------------------------------------- |
+| POST   | `/google-login` | Public         | Validate Google ID Token, return access token and set refresh cookie |
+| GET    | `/status`       | Access Token   | Check login status (pure read, no side effects)                      |
+| POST   | `/refresh`      | Refresh Cookie | Rotate the refresh token and issue a new access token                |
+| POST   | `/logout`       | Public         | Revoke the refresh token family and remove the cookie                |
 
 ---
 
@@ -360,20 +363,44 @@ erDiagram
 
 ---
 
+## Auth Module
+
+- RefreshToken
+
+### Relationships
+
+```mermaid
+erDiagram
+    RefreshToken {
+        guid Id PK
+        string TokenHash UK "SHA-256 hash; plaintext never stored"
+        string Email
+        guid FamilyId "one login = one family (indexed)"
+        datetime CreatedAtUtc
+        datetime ExpiresAtUtc "absolute expiry, inherited on rotation"
+        datetime RevokedAtUtc "null while active"
+    }
+```
+
+Rotation flow: every `POST /auth/refresh` revokes the presented token and issues a new one inheriting the same `FamilyId` and `ExpiresAtUtc`. If an already-revoked token is presented again (possible theft/replay), the entire family is revoked and re-login is forced.
+
+---
+
 # Security
 
 - Google OAuth authentication
 - Google account whitelist validation
-- JWT authentication
-- HttpOnly Cookie
+- Short-lived JWT access token (15 minutes) via `Authorization: Bearer` header — never persisted in a cookie or localStorage
+- Rotating refresh token with reuse detection (token-family revocation); stored server-side as SHA-256 hash only
+- `__Secure-AppRefresh` HttpOnly cookie scoped to `/api/auth`
 - HTML Sanitizer against XSS attacks
 - Three-layer image upload validation: extension allowlist → magic-number content detection → SkiaSharp re-encoding to WebP (strips potentially malicious payloads)
 - Authorization Policy (`AdminOnly`)
 - Centralized exception handling
 - Structured logging with Serilog
 - Fixed-window rate limiting (100 requests / 15 minutes per client IP)
-- Hardened response headers (COOP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, X-Frame-Options)
-- Origin allowlist re-check on authenticated write requests (POST/PUT/DELETE/PATCH)
+- Hardened response headers (CSP, HSTS, COOP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, X-Frame-Options)
+- Origin allowlist re-check on cookie-carrying write requests (POST/PUT/DELETE/PATCH)
 - Forwarded headers support behind Azure's reverse proxy
 
 ---
@@ -628,7 +655,6 @@ Every push to the `main` branch automatically performs the following steps:
 
 - Pixiv Status Tracking
 - Tag System
-- Refresh Token authentication
 - Search and filtering APIs
 - Redis cache
 - Integration Testing (API-level)
