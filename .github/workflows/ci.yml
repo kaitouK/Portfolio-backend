@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - "feature/**"
+      - "hotfix/**"
   pull_request:
     branches:
       - main
       - "feature/**"
+      - "hotfix/**"
 
 jobs:
   build-and-test:
