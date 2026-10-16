@@ -13,6 +13,13 @@ using Azure.Storage.Blobs.Models;
 
 namespace MyPortfolio.Service
 {
+    /// <summary>
+    /// GetActiveDraftAsync 取「進行中的草稿」<br/>
+    /// SaveDraftAsync 是 upsert——有 Id 就更新、沒有就建新的（前端第一次自動存檔拿到 Guid 後續用）。<br/>
+    /// PublishAsync 孤兒圖片清理：發布時比對每張已上傳圖片的 URL 是否還存在於 ContentHtml/ContentJson 裡，「編輯過程上傳了但後來刪掉」的圖會被從 DB 和 Blob 一併清除。<br/>
+    /// UpdateEntryProperties（私有）：每次存檔都會過 HtmlSanitizer 淨化 ContentHtml（後端這層 XSS 防線，跟前端 DOMPurify 是雙保險），並重建標籤關聯（GetOrCreateTagAsync 去重）。<br/>
+    /// 刪日誌/刪圖都遵循「DB 紀錄＋Blob 檔案同步刪」的紀律。<br/>
+    /// </summary>
     public class JournalService : IJournalService
     {
         private readonly IJournalRepository _journalRepository;
@@ -156,7 +163,11 @@ namespace MyPortfolio.Service
         {
             var entry = await _journalRepository.GetByIdAsync(id, includeImages: true);
             if (entry == null) return ServiceResult.Fail("找不到指定的日誌", HttpStatusCode.NotFound);
-            // 1. 刪除伺服器上的實體圖片
+            // 1. 刪除資料庫紀錄
+            _journalRepository.Delete(entry);
+            await _journalRepository.SaveChangesAsync();
+
+            // 2. 刪除伺服器上的實體圖片
             if (entry.Images != null && entry.Images.Any())
             {
                 foreach (var img in entry.Images)
@@ -164,10 +175,6 @@ namespace MyPortfolio.Service
                     await _blobService.DeleteAsync(img.BlobName);
                 }
             }
-
-            // 2. 刪除資料庫紀錄
-            _journalRepository.Delete(entry);
-            await _journalRepository.SaveChangesAsync();
 
             return ServiceResult.Ok("日誌與關聯圖片已成功刪除");
         }

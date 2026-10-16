@@ -62,7 +62,7 @@ namespace MyPortfolio.Model.Entities
         public Guid JournalEntryId { get; set; }
 
         [ForeignKey(nameof(JournalEntryId))]
-        public virtual JournalEntry JournalEntry { get; set; }
+        public virtual JournalEntry JournalEntry { get; set; } = null!;
 
         [Required]
         [StringLength(500)]

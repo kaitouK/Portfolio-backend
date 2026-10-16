@@ -4,21 +4,24 @@ using MyPortfolio.Controller;
 using MyPortfolio.Common;
 using MyPortfolio.Service.Interface;
 using Microsoft.EntityFrameworkCore;
-[ApiController]
-[Route("api/[controller]")]
-public class CategoryController : BaseApiController
+namespace MyPortfolio.Controller
 {
-
-    private readonly ICategoryService _categoryService;
-
-    public CategoryController(ICategoryService categoryService)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class CategoryController : BaseApiController
     {
-        _categoryService = categoryService;
-    }
-    [HttpGet]
-    public async Task<IActionResult> GetAll()
-    {
-        var result = await _categoryService.GetAllCategoriesAsync();
-        return ProcessApiResponse(result);
+
+        private readonly ICategoryService _categoryService;
+
+        public CategoryController(ICategoryService categoryService)
+        {
+            _categoryService = categoryService;
+        }
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
+        {
+            var result = await _categoryService.GetAllCategoriesAsync();
+            return ProcessApiResponse(result);
+        }
     }
 }

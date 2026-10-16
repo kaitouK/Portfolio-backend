@@ -6,6 +6,9 @@ using MyPortfolio.Service.Interface;
 
 namespace MyPortfolio.Service
 {
+    /// <summary>
+    /// GetAllCategoriesAsync：AsNoTracking 查詢投影成 CategoryDto。維持分層一致性。<br/>
+    /// </summary>
     public class CategoryService : ICategoryService
     {
         private readonly MyDbContext _context;

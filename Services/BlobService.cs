@@ -3,6 +3,12 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 namespace MyPortfolio.Service
 {
+    /// <summary>
+    /// Artwork 和 Journal 共用的唯一 Azure Blob 出入口：<br/>
+    /// UploadAsync(stream, blobName, contentType) 回傳 URL<br/>
+    /// DeleteAsync(blobName) 靜默容錯（刪失敗記 log 回 false，不炸呼叫方）。<br/>
+    /// CreateIfNotExists 只在啟動時跑一次。<br/>
+    /// </summary>
     public class BlobService : IBlobService
     {
         private readonly BlobContainerClient _containerClient;
