@@ -21,11 +21,12 @@ jobs:
           dotnet-version: "10.0.x"
 
       # 部署前依然進行編譯打包
+      # 指定 linux-x64 + ReadyToRun 預先編譯，減少 F1 冷啟動時的 JIT；restore 必須帶相同的 RID 與 R2R 參數
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore MyPortfolio.csproj -r linux-x64 -p:PublishReadyToRun=true
 
       - name: Build and Publish Artifacts
-        run: dotnet publish MyPortfolio.csproj -c Release -o publish --no-restore
+        run: dotnet publish MyPortfolio.csproj -c Release -o publish -r linux-x64 --self-contained false -p:PublishReadyToRun=true --no-restore
 
       # 開始執行 Azure 登入與部署
       - name: Azure Login
@@ -36,9 +37,14 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to Azure Web App
+        id: deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: "KaitouK-portfolio"
           package: publish
           clean: true
           restart: true
+
+      # 確認站台真的跑起來（跑成 placeholder 時 /api/health 會是 404，這步會失敗）
+      - name: Smoke test
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors --max-time 60 "${{ steps.deploy.outputs.webapp-url }}/api/health"
