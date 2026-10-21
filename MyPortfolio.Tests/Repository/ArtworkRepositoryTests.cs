@@ -139,6 +139,8 @@ namespace MyPortfolio.Tests.Repository
         {
             var artwork = MakeArtwork("title", new DateTime(2026, 1, 1));
             artwork.Description = "desc";
+            artwork.ImageUrl = "https://blob/image.webp";
+            artwork.ThumbnailUrl = "https://blob/image_thumb.webp";
             await SeedAsync(artwork);
 
             var dto = await _repository.GetDtoByIdAsync(artwork.ArtworkId);
@@ -147,6 +149,8 @@ namespace MyPortfolio.Tests.Repository
             Assert.Equal("title", dto.Title);
             Assert.Equal("desc", dto.Description);
             Assert.Equal(1, dto.CategoryId);
+            Assert.Equal("https://blob/image.webp", dto.ImageUrl);
+            Assert.Equal("https://blob/image_thumb.webp", dto.ThumbnailUrl);
         }
     }
 }

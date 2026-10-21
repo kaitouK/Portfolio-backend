@@ -113,6 +113,7 @@ builder.Services.AddDbContext<MyDbContext>(options =>
     options.UseSqlite(connectionString));
 
 builder.Services.AddOpenApi();
+builder.Services.AddHealthChecks();// 給前端冷啟動探測用，只做 liveness 不碰 DB
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -243,10 +244,15 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers().RequireRateLimiting("GlobalPolicy");//所有controller預設使用ratelimiting
+app.MapHealthChecks("/api/health");
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<MyDbContext>();
-    // 這會自動檢查資料庫是否存在，如果不存在就建立並套用最新的 Migration
-    dbContext.Database.Migrate();
+    // 有 pending 才 Migrate：Migrate() 每次都會取鎖並比對 model，會拖慢冷啟動
+    // 資料庫不存在時所有 migration 都算 pending，仍會建立並套用
+    if (dbContext.Database.GetPendingMigrations().Any())
+    {
+        dbContext.Database.Migrate();
+    }
 }
 app.Run();

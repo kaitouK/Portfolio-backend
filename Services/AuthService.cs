@@ -11,6 +11,9 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace MyPortfolio.Service
 {
+    /// <summary>
+    /// GenerateToken(email)——用設定裡的對稱金鑰簽 HMAC-SHA256 JWT，帶 Name/Email/Role(Admin) 三個 claim，15 分鐘過期。<br/>
+    /// </summary>
     public class AuthService : IAuthService
     {
         private readonly IConfiguration _configuration;
@@ -55,7 +58,7 @@ namespace MyPortfolio.Service
                 issuer: _configuration.GetSection("Jwt")["Issuer"],
                 audience: _configuration.GetSection("Jwt")["Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(15),
+                expires: DateTime.UtcNow.AddMinutes(AccessTokenMinutes),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);

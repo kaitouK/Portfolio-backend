@@ -15,6 +15,7 @@ namespace MyPortfolio.Repository
                 Title = a.Title,
                 Description = a.Description,
                 ImageUrl = a.ImageUrl,
+                ThumbnailUrl = a.ThumbnailUrl,
                 // 這裡的邏輯會被 EF 轉譯成 SQL 的 CASE WHEN 或 JOIN
                 CategoryId = a.CategoryId,
                 Tags = a.Tags.Select(t => t.TagName).ToList(),

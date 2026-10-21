@@ -438,3 +438,6 @@ appsettings.Production.json
 *.db.*
 *.db-*
 wwwroot/*
+
+# CodeGraph 本地索引
+.codegraph/

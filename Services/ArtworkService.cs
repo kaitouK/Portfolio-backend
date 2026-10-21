@@ -16,8 +16,15 @@ using Serilog;
 
 namespace MyPortfolio.Service
 {
+    /// <summary>
+    /// SaveArtworkAsync——流程：生成 GUID 檔名 → SkiaSharp 解碼（解不開就拒絕，這也是安全層：重新編碼會洗掉圖檔裡的任何 payload）→ 轉 WebP 品質 90 上傳 → 等比縮到 300px 內生成縮圖（品質 80）上傳 → 寫 DB。失敗時補償性刪除已上傳的 blob，不留垃圾。<br/>
+    /// GetPagedArtworksAsync——cursor 字串（日期_Id 複合游標）的解析與組裝在這層做，Repository 只收結構化參數。<br/>
+    /// DeleteArtworkAsync——先開 DB 交易刪紀錄，成功後才刪 blob（順序刻意：DB 可回滾、blob 不可）。<br/>
+    /// UpdateArtworkAsync——部分更新（只更新有值的欄位）。<br/>
+    /// </summary>
     public class ArtworkService : IArtworkService
     {
+
         private readonly IArtworkRepository _artworkRepository;
         // 定義一個儲存上傳檔案的路徑，這裡使用 wwwroot/uploads 資料夾
         private readonly ILogger<ArtworkService> _logger;

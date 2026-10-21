@@ -1,0 +1,11 @@
+# 所有文字檔：版本庫與工作目錄一律 LF（與 Linux 部署一致）
+* text=auto eol=lf
+# Visual Studio 的方案檔習慣 CRLF，保守起見保留
+*.sln text eol=crlf
+# 二進位檔不轉換（text=auto 也會自動偵測，這裡明確寫出）
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.dll binary
+*.exe binary
