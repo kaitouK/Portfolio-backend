@@ -45,6 +45,13 @@ namespace MyPortfolio.Service
             return blobClient.Uri.ToString();
 
         }
+        // 找不到 blob 時會丟 RequestFailedException，由呼叫方處理
+        public async Task<Stream> DownloadAsync(string blobName)
+        {
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            var response = await blobClient.DownloadContentAsync();
+            return response.Value.Content.ToStream();
+        }
         public async Task<bool> DeleteAsync(string blobName)
         {
             if (string.IsNullOrEmpty(blobName)) return false;

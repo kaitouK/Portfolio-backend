@@ -127,6 +127,100 @@ namespace MyPortfolio.Tests.Repository
         }
 
         [Fact]
+        public async Task GetIndex_OrdersLikePagedListAndExcludesHidden()
+        {
+            var day = new DateTime(2026, 1, 5);
+            await SeedAsync(
+                MakeArtwork("older", new DateTime(2026, 1, 1)),
+                MakeArtwork("sameDayFirst", day),
+                MakeArtwork("hidden", new DateTime(2026, 1, 9), visible: false),
+                MakeArtwork("sameDaySecond", day));
+
+            var index = await _repository.GetIndexAsync();
+            var (paged, _) = await _repository.GetPagedArtworksAsync(10, null, null);
+
+            Assert.Equal(new[] { "sameDaySecond", "sameDayFirst", "older" }, index.Select(i => i.Title));
+            Assert.Equal(paged.Select(a => a.ArtworkId), index.Select(i => i.ArtworkId));
+        }
+
+        [Fact]
+        public async Task CountThrough_WithoutCursor_CountsFromFirstItemToTargetInclusive()
+        {
+            var target = MakeArtwork("day2", new DateTime(2026, 1, 2));
+            await SeedAsync(
+                MakeArtwork("day1", new DateTime(2026, 1, 1)),
+                target,
+                MakeArtwork("day3", new DateTime(2026, 1, 3)),
+                MakeArtwork("day4", new DateTime(2026, 1, 4)));
+
+            var count = await _repository.CountThroughAsync(null, null, target.ArtworkId);
+
+            Assert.Equal(3, count); // day4, day3, day2
+        }
+
+        [Fact]
+        public async Task CountThrough_WithCursor_CountsOnlyItemsAfterCursor()
+        {
+            var day4 = MakeArtwork("day4", new DateTime(2026, 1, 4));
+            var day1 = MakeArtwork("day1", new DateTime(2026, 1, 1));
+            await SeedAsync(
+                day1,
+                MakeArtwork("day2", new DateTime(2026, 1, 2)),
+                MakeArtwork("day3", new DateTime(2026, 1, 3)),
+                day4);
+
+            // 已載入 day4，游標指向它 → 剩 day3, day2, day1
+            var count = await _repository.CountThroughAsync(day4.CompletionDate, day4.ArtworkId, day1.ArtworkId);
+
+            Assert.Equal(3, count);
+        }
+
+        [Fact]
+        public async Task CountThrough_SameDate_UsesIdAsTieBreaker()
+        {
+            var day = new DateTime(2026, 1, 5);
+            var first = MakeArtwork("first", day);
+            var second = MakeArtwork("second", day);
+            var third = MakeArtwork("third", day);
+            await SeedAsync(first, second, third);
+
+            // 同日期依 Id 遞減：third, second, first
+            var count = await _repository.CountThroughAsync(null, null, second.ArtworkId);
+
+            Assert.Equal(2, count);
+        }
+
+        [Fact]
+        public async Task CountThrough_HiddenOrMissingTarget_ReturnsNull()
+        {
+            var hidden = MakeArtwork("hidden", new DateTime(2026, 1, 1), visible: false);
+            await SeedAsync(hidden, MakeArtwork("visible", new DateTime(2026, 1, 2)));
+
+            Assert.Null(await _repository.CountThroughAsync(null, null, hidden.ArtworkId));
+            Assert.Null(await _repository.CountThroughAsync(null, null, 999));
+        }
+
+        [Fact]
+        public async Task GetMissingImageSize_RespectsAfterIdTakeAndIncludesHidden()
+        {
+            var a = MakeArtwork("a", new DateTime(2026, 1, 1));
+            var b = MakeArtwork("b", new DateTime(2026, 1, 2), visible: false);
+            var c = MakeArtwork("c", new DateTime(2026, 1, 3));
+            var done = MakeArtwork("done", new DateTime(2026, 1, 4));
+            done.ImageWidth = 100;
+            done.ImageHeight = 100;
+            var d = MakeArtwork("d", new DateTime(2026, 1, 5));
+            await SeedAsync(a, b, c, done, d);
+
+            var batch = await _repository.GetMissingImageSizeAsync(a.ArtworkId, 2);
+
+            Assert.Equal(new[] { "b", "c" }, batch.Select(x => x.Title));
+
+            var rest = await _repository.GetMissingImageSizeAsync(c.ArtworkId, 10);
+            Assert.Equal(new[] { "d" }, rest.Select(x => x.Title)); // 已有寬高的 done 被略過
+        }
+
+        [Fact]
         public async Task GetDtoById_NotFound_ReturnsNull()
         {
             var dto = await _repository.GetDtoByIdAsync(999);
@@ -141,6 +235,9 @@ namespace MyPortfolio.Tests.Repository
             artwork.Description = "desc";
             artwork.ImageUrl = "https://blob/image.webp";
             artwork.ThumbnailUrl = "https://blob/image_thumb.webp";
+            artwork.DisplayUrl = "https://blob/image_display.webp";
+            artwork.ImageWidth = 2800;
+            artwork.ImageHeight = 4000;
             await SeedAsync(artwork);
 
             var dto = await _repository.GetDtoByIdAsync(artwork.ArtworkId);
@@ -151,6 +248,9 @@ namespace MyPortfolio.Tests.Repository
             Assert.Equal(1, dto.CategoryId);
             Assert.Equal("https://blob/image.webp", dto.ImageUrl);
             Assert.Equal("https://blob/image_thumb.webp", dto.ThumbnailUrl);
+            Assert.Equal("https://blob/image_display.webp", dto.DisplayUrl);
+            Assert.Equal(2800, dto.ImageWidth);
+            Assert.Equal(4000, dto.ImageHeight);
         }
     }
 }

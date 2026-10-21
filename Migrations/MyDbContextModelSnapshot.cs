@@ -15,7 +15,7 @@ namespace MyPortfolio.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
             modelBuilder.Entity("ArtworkTag", b =>
                 {
@@ -66,8 +66,17 @@ namespace MyPortfolio.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DisplayUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ImageHeight")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ImageUrl")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("ImageWidth")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsGalleryVisible")
                         .ValueGeneratedOnAdd()

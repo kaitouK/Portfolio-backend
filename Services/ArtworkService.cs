@@ -13,17 +13,24 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using System.Reflection.Metadata;
 using Serilog;
+using MyPortfolio.Utility;
 
 namespace MyPortfolio.Service
 {
     /// <summary>
-    /// SaveArtworkAsync——流程：生成 GUID 檔名 → SkiaSharp 解碼（解不開就拒絕，這也是安全層：重新編碼會洗掉圖檔裡的任何 payload）→ 轉 WebP 品質 90 上傳 → 等比縮到 300px 內生成縮圖（品質 80）上傳 → 寫 DB。失敗時補償性刪除已上傳的 blob，不留垃圾。<br/>
-    /// GetPagedArtworksAsync——cursor 字串（日期_Id 複合游標）的解析與組裝在這層做，Repository 只收結構化參數。<br/>
+    /// SaveArtworkAsync——流程：生成 GUID 檔名 → SkiaSharp 解碼（解不開就拒絕，這也是安全層：重新編碼會洗掉圖檔裡的任何 payload）→ 轉 WebP 品質 90 上傳 → 等比縮到 300px 內生成縮圖（品質 80）上傳 → 原圖寬超過 1400 時再生成顯示圖（品質 85）上傳 → 連同原圖寬高寫 DB。失敗時補償性刪除已上傳的 blob，不留垃圾。<br/>
+    /// GetPagedArtworksAsync——cursor 字串（日期_Id 複合游標）的解析與組裝在這層做，Repository 只收結構化參數；帶 untilId 時一次載到目標為止（上限 MaxUntilLimit）。<br/>
+    /// BackfillImagesAsync——舊作品補寬高與顯示圖，以 afterId 當游標分批處理，單筆失敗不中斷。<br/>
     /// DeleteArtworkAsync——先開 DB 交易刪紀錄，成功後才刪 blob（順序刻意：DB 可回滾、blob 不可）。<br/>
     /// UpdateArtworkAsync——部分更新（只更新有值的欄位）。<br/>
     /// </summary>
     public class ArtworkService : IArtworkService
     {
+        private const int ThumbnailMaxSize = 300;
+        // 中間欄 672px × 2 倍螢幕
+        private const int DisplayMaxWidth = 1400;
+        // untilId 單次最多載入幾筆，避免一次撈太多
+        private const int MaxUntilLimit = 300;
 
         private readonly IArtworkRepository _artworkRepository;
         // 定義一個儲存上傳檔案的路徑，這裡使用 wwwroot/uploads 資料夾
@@ -42,10 +49,14 @@ namespace MyPortfolio.Service
             var fileGuid = Guid.NewGuid();
             var fileName = $"{fileGuid}.webp";
             var thumbName = $"{fileGuid}_thumb.webp";
+            var displayName = $"{fileGuid}_display.webp";
             try
             {
                 string imageUrl;
                 string thumbUrl;
+                string? displayUrl;
+                int imageWidth;
+                int imageHeight;
                 // 1. 儲存實體檔案
                 using (var memoryStream = new MemoryStream())
                 {
@@ -57,6 +68,8 @@ namespace MyPortfolio.Service
                         {
                             return ServiceResult<ArtworkResponse>.Fail("無法解析圖片內容，可能是檔案損壞或格式不支援");
                         }
+                        imageWidth = original.Width;
+                        imageHeight = original.Height;
                         using (var image = SKImage.FromBitmap(original))
                         using (var data = image.Encode(SKEncodedImageFormat.Webp, 90))
                         using (var blobUploadStream = data.AsStream())
@@ -64,18 +77,11 @@ namespace MyPortfolio.Service
                             imageUrl = await _blobService.UploadAsync(blobUploadStream, fileName, "image/webp");
                         }
                         //生成縮圖
-                        float ratio = Math.Min(300f / original.Width, 300f / original.Height);
-                        int width = (int)(original.Width * ratio);
-                        int height = (int)(original.Height * ratio);
-
-                        var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
-                        using (var resized = original.Resize(new SKImageInfo(width, height), sampling))
-                        using (var thumbImage = SKImage.FromBitmap(resized))
-                        using (var thumbData = thumbImage.Encode(SKEncodedImageFormat.Webp, 80))
-                        using (var thumbUploadStream = thumbData.AsStream())
-                        {
-                            thumbUrl = await _blobService.UploadAsync(thumbUploadStream, thumbName, "image/webp");
-                        }
+                        thumbUrl = await UploadResizedAsync(original, ThumbnailMaxSize, ThumbnailMaxSize, 80, thumbName);
+                        //原圖夠小就不產生顯示圖，前端直接用原圖
+                        displayUrl = original.Width > DisplayMaxWidth
+                            ? await UploadResizedAsync(original, DisplayMaxWidth, int.MaxValue, 85, displayName)
+                            : null;
                     }
                 }
                 //寫入資料庫
@@ -86,6 +92,9 @@ namespace MyPortfolio.Service
                     CategoryId = dto.CategoryId,
                     ImageUrl = imageUrl,
                     ThumbnailUrl = thumbUrl,
+                    DisplayUrl = displayUrl,
+                    ImageWidth = imageWidth,
+                    ImageHeight = imageHeight,
                     CompletionDate = dto.CompletionDate,
                     CreatedAt = DateTime.Now
                 };
@@ -106,10 +115,11 @@ namespace MyPortfolio.Service
                 _logger.LogError(ex, "儲存作品至 Azure Blob 失敗，嘗試清理已上傳的雲端檔案: {Message}", ex.Message);
                 await _blobService.DeleteAsync(fileName);
                 await _blobService.DeleteAsync(thumbName);
+                await _blobService.DeleteAsync(displayName);
                 return ServiceResult<ArtworkResponse>.Fail($"儲存作品失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
         }
-        public async Task<ServiceResult<CursorPagedResult<ArtworkDto>>> GetPagedArtworksAsync(int limit = 10, string? cursor = null)
+        public async Task<ServiceResult<CursorPagedResult<ArtworkDto>>> GetPagedArtworksAsync(int limit = 10, string? cursor = null, int? untilId = null)
         {
             try
             {
@@ -127,6 +137,13 @@ namespace MyPortfolio.Service
                         cursorDate = date;
                         cursorId = id;
                     }
+                }
+
+                // 跳轉用：一次載到目標為止，不足一頁時仍補滿一頁；目標不存在就是一般的一頁
+                if (untilId.HasValue)
+                {
+                    var countThrough = await _artworkRepository.CountThroughAsync(cursorDate, cursorId, untilId.Value);
+                    limit = Math.Min(Math.Max(limit, countThrough ?? 0), MaxUntilLimit);
                 }
 
                 //  呼叫 Repository
@@ -152,6 +169,19 @@ namespace MyPortfolio.Service
             {
                 _logger.LogError(ex, "取得作品列表失敗: {Message}", ex.Message);
                 return ServiceResult<CursorPagedResult<ArtworkDto>>.Fail($"取得作品列表失敗: {ex.Message}", HttpStatusCode.InternalServerError);
+            }
+        }
+        public async Task<ServiceResult<List<ArtworkIndexItemDto>>> GetArtworkIndexAsync()
+        {
+            try
+            {
+                var items = await _artworkRepository.GetIndexAsync();
+                return ServiceResult<List<ArtworkIndexItemDto>>.Ok(items);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "取得作品索引失敗: {Message}", ex.Message);
+                return ServiceResult<List<ArtworkIndexItemDto>>.Fail($"取得作品索引失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
         }
         public async Task<ServiceResult<ArtworkDto>> GetArtworkByIdAsync(int id)
@@ -180,6 +210,7 @@ namespace MyPortfolio.Service
             {
                 string? fileName = GetBlobNameFromUrl(artwork.ImageUrl);
                 string? thumbName = GetBlobNameFromUrl(artwork.ThumbnailUrl);
+                string? displayName = GetBlobNameFromUrl(artwork.DisplayUrl);
                 await _artworkRepository.ExecuteInTransactionAsync(async () =>
             {
                 _artworkRepository.Remove(artwork);
@@ -191,6 +222,8 @@ namespace MyPortfolio.Service
                         await _blobService.DeleteAsync(fileName);
                     if (!string.IsNullOrEmpty(thumbName))
                         await _blobService.DeleteAsync(thumbName);
+                    if (!string.IsNullOrEmpty(displayName))
+                        await _blobService.DeleteAsync(displayName);
                 }
                 catch (Exception ex)
                 {
@@ -227,6 +260,61 @@ namespace MyPortfolio.Service
                 _logger.LogError(ex, "更新作品 {ArtworkId} 失敗: {Message}", dto.ArtworkId, ex.Message);
                 return ServiceResult.Fail($"更新作品失敗: {ex.Message}", HttpStatusCode.InternalServerError);
             }
+        }
+        public async Task<ServiceResult<ImageBackfillResult>> BackfillImagesAsync(int afterId, int batchSize)
+        {
+            batchSize = Math.Clamp(batchSize, 1, 20);
+            try
+            {
+                // 多拿一筆判斷還有沒有下一批
+                var artworks = await _artworkRepository.GetMissingImageSizeAsync(afterId, batchSize + 1);
+                var result = new ImageBackfillResult { LastId = afterId, HasMore = artworks.Count > batchSize };
+
+                foreach (var artwork in artworks.Take(batchSize))
+                {
+                    result.LastId = artwork.ArtworkId; // 失敗也要往前推，壞掉的圖不會被無限重試
+                    try
+                    {
+                        var blobName = GetBlobNameFromUrl(artwork.ImageUrl)
+                            ?? throw new InvalidOperationException("ImageUrl 無法解析出 blob 名稱");
+                        using var stream = await _blobService.DownloadAsync(blobName);
+                        using var original = SKBitmap.Decode(stream)
+                            ?? throw new InvalidOperationException("無法解碼原圖");
+
+                        artwork.ImageWidth = original.Width;
+                        artwork.ImageHeight = original.Height;
+                        if (original.Width > DisplayMaxWidth && artwork.DisplayUrl == null)
+                        {
+                            var displayName = $"{Path.GetFileNameWithoutExtension(blobName)}_display.webp";
+                            artwork.DisplayUrl = await UploadResizedAsync(original, DisplayMaxWidth, int.MaxValue, 85, displayName);
+                        }
+                        await _artworkRepository.SaveChangesAsync();
+                        result.Processed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "補齊作品 {ArtworkId} 的圖片資料失敗: {Message}", artwork.ArtworkId, ex.Message);
+                        result.Failed++;
+                    }
+                }
+                return ServiceResult<ImageBackfillResult>.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "補齊作品圖片資料失敗: {Message}", ex.Message);
+                return ServiceResult<ImageBackfillResult>.Fail($"補齊作品圖片資料失敗: {ex.Message}", HttpStatusCode.InternalServerError);
+            }
+        }
+        // 等比縮到上限內 → 轉 WebP → 上傳，回傳 blob URL（縮圖、顯示圖、補資料共用）
+        private async Task<string> UploadResizedAsync(SKBitmap original, int maxWidth, int maxHeight, int quality, string blobName)
+        {
+            var (width, height) = ImageSizing.ScaleToFit(original.Width, original.Height, maxWidth, maxHeight);
+            var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+            using var resized = original.Resize(new SKImageInfo(width, height), sampling);
+            using var image = SKImage.FromBitmap(resized);
+            using var data = image.Encode(SKEncodedImageFormat.Webp, quality);
+            using var uploadStream = data.AsStream();
+            return await _blobService.UploadAsync(uploadStream, blobName, "image/webp");
         }
         private string? GetBlobNameFromUrl(string? url)
         {

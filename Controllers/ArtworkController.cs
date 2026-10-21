@@ -78,20 +78,54 @@ public class ArtworksController : BaseApiController
     //網址: GET /api/artworks
     [HttpGet]
     [DisableRateLimiting]//對於公開的 GET 請求，禁用速率限制，避免影響使用者體驗
-    public async Task<IActionResult> GetArtworks([FromQuery] int limit = 10, [FromQuery] string? cursor = null)
+    public async Task<IActionResult> GetArtworks([FromQuery] int limit = 10, [FromQuery] string? cursor = null, [FromQuery] int? untilId = null)
     {
         try
         {
-            //限制單次最大載入量，避免癱瘓資料庫
+            //限制單次最大載入量，避免癱瘓資料庫（帶 untilId 時的上限由 Service 控制）
             if (limit > 50) limit = 50;
             if (limit <= 0) limit = 10;//確保limit是合理正整數
-            var result = await _artworkService.GetPagedArtworksAsync(limit, cursor);
+            var result = await _artworkService.GetPagedArtworksAsync(limit, cursor, untilId);
             return ProcessApiResponse(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "取得所有作品失敗: {Message}", ex.Message);
             return ProcessApiResponse(ApiResponse.Fail("取得作品列表失敗，請稍後再試", 500));
+        }
+    }
+
+    //網址: GET /api/artworks/index（左側縮圖索引，一次回傳全部公開作品）
+    [HttpGet("index")]
+    [DisableRateLimiting]
+    public async Task<IActionResult> GetIndex()
+    {
+        try
+        {
+            var result = await _artworkService.GetArtworkIndexAsync();
+            return ProcessApiResponse(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "取得作品索引失敗: {Message}", ex.Message);
+            return ProcessApiResponse(ApiResponse.Fail("取得作品索引失敗，請稍後再試", 500));
+        }
+    }
+
+    //網址: POST /api/artworks/backfill-images?afterId=0&batchSize=5（補齊舊作品寬高與顯示圖）
+    [HttpPost("backfill-images")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> BackfillImages([FromQuery] int afterId = 0, [FromQuery] int batchSize = 5)
+    {
+        try
+        {
+            var result = await _artworkService.BackfillImagesAsync(afterId, batchSize);
+            return ProcessApiResponse(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "補齊作品圖片資料失敗: {Message}", ex.Message);
+            return ProcessApiResponse(ApiResponse.Fail("補齊作品圖片資料失敗，請稍後再試", 500));
         }
     }
 

@@ -4,5 +4,6 @@ namespace MyPortfolio.Service.Interface
     {
         Task<string> UploadAsync(Stream stream, string blobName, string contentType);
         Task<bool> DeleteAsync(string blobName);
+        Task<Stream> DownloadAsync(string blobName);
     }
 }

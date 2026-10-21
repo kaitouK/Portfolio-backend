@@ -13,6 +13,11 @@ namespace MyPortfolio.Model.Entities
         public string? Description { get; set; }
         public string? ImageUrl { get; set; }
         public string? ThumbnailUrl { get; set; }
+        // 寬度 ≤ 1400 的顯示圖；原圖本來就夠小時為 null（前端改用 ImageUrl）
+        public string? DisplayUrl { get; set; }
+        // 原圖寬高，讓前端用 aspect-ratio 先佔位；舊作品補資料前為 null
+        public int? ImageWidth { get; set; }
+        public int? ImageHeight { get; set; }
         [MaxLength(50)]
         public string? PixivId { get; set; }
         public DateTime CreatedAt { get; set; }

@@ -29,12 +29,30 @@ namespace MyPortfolio.DTOs
         public string? Description { get; set; }
         public string? ImageUrl { get; set; }
         public string? ThumbnailUrl { get; set; }
+        public string? DisplayUrl { get; set; } // 顯示圖，null 時前端改用 ImageUrl
+        public int? ImageWidth { get; set; }
+        public int? ImageHeight { get; set; }
         public int CategoryId { get; set; }
         public List<string> Tags { get; set; } = new();
         public int? PixivViews { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime CompletionDate { get; set; } // 作品完成日期
 
+    }
+    // 左側縮圖索引用的輕量 DTO（一次回傳全部公開作品）
+    public class ArtworkIndexItemDto
+    {
+        public int ArtworkId { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string? ThumbnailUrl { get; set; }
+    }
+    // 舊作品補寬高與顯示圖的批次結果；LastId 給下一批當 afterId
+    public class ImageBackfillResult
+    {
+        public int Processed { get; set; }
+        public int Failed { get; set; }
+        public int LastId { get; set; }
+        public bool HasMore { get; set; }
     }
     public class ArtworkUpdateRequest
     {
