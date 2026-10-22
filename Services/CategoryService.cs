@@ -3,6 +3,7 @@ using MyPortfolio.DTOs;
 using MyPortfolio.Common;
 using MyPortfolio.Data;
 using MyPortfolio.Service.Interface;
+using MyPortfolio.Repository;
 
 namespace MyPortfolio.Service
 {
@@ -13,25 +14,20 @@ namespace MyPortfolio.Service
     {
         private readonly MyDbContext _context;
         private readonly ILogger<CategoryService> _logger;
+        private readonly ICategoryRepository _categoryRepository;
 
-        public CategoryService(MyDbContext context, ILogger<CategoryService> logger)
+        public CategoryService(MyDbContext context, ILogger<CategoryService> logger, ICategoryRepository categoryRepository)
         {
             _context = context;
             _logger = logger;
+            _categoryRepository = categoryRepository;
         }
 
         public async Task<ServiceResult<List<CategoryDto>>> GetAllCategoriesAsync()
         {
             try
             {
-                var categories = await _context.Categories
-                    .AsNoTracking()
-                    .Select(c => new CategoryDto
-                    {
-                        CategoryId = c.CategoryId,
-                        Name = c.Name
-                    }).ToListAsync();
-
+                var categories = await _categoryRepository.GetAllCategoriesAsync();
                 return ServiceResult<List<CategoryDto>>.Ok(categories);
             }
             catch (Exception ex)

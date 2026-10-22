@@ -36,16 +36,21 @@ namespace MyPortfolio.Service
         // 定義一個儲存上傳檔案的路徑，這裡使用 wwwroot/uploads 資料夾
         private readonly ILogger<ArtworkService> _logger;
         private readonly IBlobService _blobService;
-        public ArtworkService(IArtworkRepository artworkRepository, ILogger<ArtworkService> logger, IBlobService blobService)
+        private readonly ICategoryRepository _categoryRepository;
+        public ArtworkService(IArtworkRepository artworkRepository, ILogger<ArtworkService> logger, IBlobService blobService, ICategoryRepository categoryRepository)
         {
             _artworkRepository = artworkRepository;
             _logger = logger;
             _blobService = blobService;
+            _categoryRepository = categoryRepository;
         }
 
         public async Task<ServiceResult<ArtworkResponse>> SaveArtworkAsync(ArtworkUploadRequest dto)
         {
-
+            if (!await _categoryRepository.ExistsAsync(dto.CategoryId))
+            {
+                return ServiceResult<ArtworkResponse>.Fail("作品分類不存在", HttpStatusCode.BadRequest);
+            }
             var fileGuid = Guid.NewGuid();
             var fileName = $"{fileGuid}.webp";
             var thumbName = $"{fileGuid}_thumb.webp";
@@ -205,7 +210,7 @@ namespace MyPortfolio.Service
             var artwork = await _artworkRepository.GetByIdAsync(id);
             if (artwork == null) return ServiceResult.Fail("作品不存在", HttpStatusCode.NotFound);
 
-            // 使用交易確保資料庫與雲端檔案同步刪除
+            // 資料庫優先刪除、盡力刪除檔案
             try
             {
                 string? fileName = GetBlobNameFromUrl(artwork.ImageUrl);

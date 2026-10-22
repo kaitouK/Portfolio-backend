@@ -32,13 +32,13 @@ public class ArtworksController : BaseApiController
         if (dto.File == null || dto.File.Length == 0)
             return ProcessApiResponse(ApiResponse.Fail("請選擇要上傳的圖片", 400));
 
-        // 1.限制檔案大小
+        // 1. 限制檔案大小
         const long maxFileSize = 8 * 1024 * 1024; //8MB
         if (dto.File.Length > maxFileSize)
             return ProcessApiResponse(ApiResponse.Fail($"檔案大小不能超過 {maxFileSize / (1024 * 1024)} MB", 400));
 
         // 2. 限制檔案格式 (安全性考量)
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".bmp" };
         var extension = Path.GetExtension(dto.File.FileName).ToLowerInvariant();
         if (!allowedExtensions.Contains(extension))
             return ProcessApiResponse(ApiResponse.Fail("不支援的檔案格式", 400));
@@ -54,7 +54,6 @@ public class ArtworksController : BaseApiController
         }
         try
         {
-            // 3. 呼叫 Service 處理儲存邏輯
             var result = await _artworkService.SaveArtworkAsync(dto);
 
             return ProcessApiResponse(result);

@@ -182,16 +182,35 @@ namespace MyPortfolio.Service
         {
             var image = await _journalRepository.GetImageByIdAsync(id);
             if (image == null)
-                return ServiceResult.Fail("找不到指定的圖片");
+                return ServiceResult.Fail("找不到指定的圖片", HttpStatusCode.NotFound);
+            try
+            {
+                string? blobName = image.BlobName;
 
-            // 1. 刪除伺服器硬碟上的實體檔案
-            await _blobService.DeleteAsync(image.BlobName);
+                // 1. 刪除資料庫紀錄
+                _journalRepository.DeleteImage(image);
+                await _journalRepository.SaveChangesAsync();
 
-            // 2. 刪除資料庫紀錄
-            _journalRepository.DeleteImage(image);
-            await _journalRepository.SaveChangesAsync();
+                // 2. 刪除伺服器硬碟上的實體檔案
+                try
+                {
+                    if (!string.IsNullOrEmpty(blobName))
+                        await _blobService.DeleteAsync(blobName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "刪除圖片 {ImageId} 的雲端檔案失敗: {Message}", id, ex.Message);
+                    // 資料庫已刪除，雲端檔案刪除失敗不阻止整個操作
+                }
 
-            return ServiceResult.Ok("圖片刪除成功");
+                return ServiceResult.Ok("圖片刪除成功");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "刪除圖片 {ImageId} 失敗: {Message}", id, ex.Message);
+                return ServiceResult.Fail($"刪除圖片失敗: {ex.Message}", HttpStatusCode.InternalServerError);
+            }
+
         }
 
         private async Task UpdateEntryProperties(JournalEntry entry, JournalSaveRequest dto)

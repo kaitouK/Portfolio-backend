@@ -65,7 +65,7 @@ namespace MyPortfolio.Controller
                 return ProcessApiResponse(ApiResponse.Fail($"檔案大小不能超過 {maxFileSize / (1024 * 1024)} MB", 400));
 
             // 3. 限制檔案格式
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".bmp" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (!allowedExtensions.Contains(extension))
                 return ProcessApiResponse(ApiResponse.Fail("不支援的檔案格式", 400));
