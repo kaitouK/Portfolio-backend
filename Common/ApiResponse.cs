@@ -61,12 +61,3 @@ namespace MyPortfolio.Common
         };
     }
 }
-//status code 200: 成功 (OK)
-//status code 201: 已創建 (Created)
-//status code 204: 無內容 (No Content)
-//status code 400: 請求錯誤 (Bad Request)
-//status code 401: 未授權 (Unauthorized)
-//status code 403: 禁止 (Forbidden)
-//status code 404: 未找到 (Not Found)
-//status code 500: 伺服器錯誤 (Internal Server Error)
-//status code 503: 服務不可用 (Service Unavailable)

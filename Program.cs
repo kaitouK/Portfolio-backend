@@ -93,7 +93,18 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(ClaimTypes.Email, builder.Configuration["Admin:Email"]!);
+        var adminEmail = builder.Configuration["Admin:Email"];
+        // 自訂驗證邏輯，檢查ClaimTypes.Email是否符合管理員Email
+        policy.RequireAssertion(context =>
+           context.User.HasClaim(
+               claim => claim.Type == ClaimTypes.Email &&
+                        string.Equals(
+                            claim.Value,
+                            adminEmail,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+           )
+        );
     });
 });
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
